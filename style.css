@@ -129,6 +129,10 @@ dialog::backdrop{background:rgba(5,7,10,.7)}
 .cfg-msg.good{color:var(--green)}
 
 li.pending{opacity:.6}
+.notify-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}
+.notify-row label{flex:1 1 230px;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px}
+.notify-row input[type="checkbox"]{width:18px;height:18px;flex:0 0 auto;accent-color:var(--accent)}
+.notify-row select{width:auto;max-width:100%}
 details.timings{margin-top:16px;border-top:1px solid var(--border);padding-top:10px;font-size:13px}
 details.timings > summary{cursor:pointer;color:var(--muted);padding:6px 0}
 details.timings #timingsList{margin:6px 0 10px;line-height:1.7}
@@ -161,6 +165,7 @@ body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
   .task-list li{min-height:40px;padding:6px 0}
   .chat-head{min-height:44px;align-items:center}
   .tag[role="button"]{padding:7px 11px;font-size:11px}
+  .notify-row label{min-height:40px}
   .task-add button,.child-form button{min-width:40px}
 }
 

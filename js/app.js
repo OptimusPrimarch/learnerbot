@@ -600,6 +600,8 @@ const HANDLERS = {
   closeSettings: () => $('settings').close(),
   saveSettings,
   toggleToken: () => setTokenVisible($('cfgToken').type === 'password'),
+  saveNotify,
+  testEmail,
   copyTimings: () => {
     const rows = timingSummary();
     const text = rows.length ? rows.map(timingLine).join('\n') : 'no requests yet';
@@ -752,7 +754,81 @@ function renderTimings() {
     : 'Nothing yet. Use the app, then look again.';
 }
 
+// ---- email updates -------------------------------------------
+const NOTIFY_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const NOTIFY_OFF = { daily: { enabled: false, hour: 7 }, weekly: { enabled: false, day: 0, hour: 18 }, nudge: { enabled: false, hour: 20 } };
+const hourLabel = h => (h % 12 || 12) + ':00 ' + (h < 12 ? 'AM' : 'PM');
+
+function notifyMsg(text, kind) {
+  const p = $('notifyMsg');
+  p.textContent = text || '';
+  p.className = 'cfg-msg' + (kind ? ' ' + kind : '');
+}
+
+function fillSelect(id, labels, value) {
+  const el = $(id);
+  if (!el.options.length) labels.forEach((t, i) => el.add(new Option(t, String(i))));
+  el.value = String(value);
+}
+
+function renderNotifyForm() {
+  const n = (STATE && STATE.notify) || NOTIFY_OFF;
+  const hours = Array.from({ length: 24 }, (_, h) => hourLabel(h));
+  $('nDailyOn').checked = !!n.daily.enabled;   fillSelect('nDailyHour', hours, n.daily.hour);
+  $('nWeeklyOn').checked = !!n.weekly.enabled; fillSelect('nWeeklyDay', NOTIFY_DAYS, n.weekly.day); fillSelect('nWeeklyHour', hours, n.weekly.hour);
+  $('nNudgeOn').checked = !!n.nudge.enabled;   fillSelect('nNudgeHour', hours, n.nudge.hour);
+  $('notifyIntro').textContent = Api.isDemo()
+    ? 'Demo mode never sends email. Try the screen; nothing is scheduled.'
+    : (STATE && STATE.notify && STATE.notify.email)
+      ? `Sent to ${n.email}, in time zone ${n.tz}, within about 15 minutes of the hour you pick. Nothing is sent unless you switch it on.`
+      : 'Connect first, then you can choose when to get updates.';
+  notifyMsg('');
+}
+
+function readNotifyForm() {
+  return {
+    daily:  { enabled: $('nDailyOn').checked,  hour: Number($('nDailyHour').value) },
+    weekly: { enabled: $('nWeeklyOn').checked, day: Number($('nWeeklyDay').value), hour: Number($('nWeeklyHour').value) },
+    nudge:  { enabled: $('nNudgeOn').checked,  hour: Number($('nNudgeHour').value) },
+    siteUrl: location.href.split('#')[0].split('?')[0].replace(/index\.html$/, '')   // lets the emails link back here
+  };
+}
+
+function describeNotify(n) {
+  const parts = [];
+  if (n.daily.enabled) parts.push(`daily focus around ${hourLabel(n.daily.hour)}`);
+  if (n.weekly.enabled) parts.push(`weekly review on ${NOTIFY_DAYS[n.weekly.day]}s around ${hourLabel(n.weekly.hour)}`);
+  if (n.nudge.enabled) parts.push(`an evening nudge around ${hourLabel(n.nudge.hour)} if nothing is logged`);
+  return parts.length ? 'Saved. You will get: ' + parts.join('; ') + '.' : 'Saved. No emails will be sent.';
+}
+
+/** Settings go through the same one-at-a-time queue as everything else. */
+function notifyRequest(label, action, args, onDone) {
+  if (!Api.isConfigured()) return notifyMsg('Connect first (the fields above).', 'err');
+  notifyMsg(label + '…');
+  request(label, action, args)
+    .then(({ res }) => { onDone(res); if (pending === 0) setStatus('Ready', 'ok'); })
+    .catch(err => {
+      notifyMsg(err.message, 'err');
+      if (isAuthError(err)) fail(err); else if (pending === 0) setStatus('Ready', 'ok');
+    });
+}
+
+function saveNotify() {
+  notifyRequest('Saving', 'saveNotifications', readNotifyForm(), res => {
+    if (STATE && res && res.notify) { STATE.notify = res.notify; saveCache(); }
+    notifyMsg(describeNotify((res && res.notify) || readNotifyForm()), 'good');
+  });
+}
+
+function testEmail() {
+  notifyRequest('Sending', 'sendTestEmail', {}, res => {
+    notifyMsg(res && res.demo ? 'Demo mode: no email is really sent.' : `Sent to ${res.to}. Check your inbox (and the spam folder).`, 'good');
+  });
+}
+
 function openSettings(message, kind) {
+  renderNotifyForm();
   renderTimings();
   const cfg = Api.getConfig();
   $('cfgUrl').value = cfg.url || '';

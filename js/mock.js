@@ -40,6 +40,7 @@ const Mock = (() => {
         { week: iso(7), score: 7, summary: 'Steady progress on Python.' }
       ],
       chat: [],
+      notify: { daily: { enabled: false, hour: 7 }, weekly: { enabled: false, day: 0, hour: 18 }, nudge: { enabled: false, hour: 20 } },
       reports: {
         daily: { date: new Date().toISOString(), type: 'daily', score: '', data: {
           focus: 'Build the file-renaming CLI',
@@ -51,7 +52,10 @@ const Mock = (() => {
   }
 
   function load() {
-    try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.goals) return s; } catch (_) { /* fall through */ }
+    try {
+      const s = JSON.parse(localStorage.getItem(KEY));
+      if (s && s.goals) { s.notify = s.notify || seed().notify; return s; }   // older saved demos predate the email settings
+    } catch (_) { /* fall through */ }
     return seed();
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (_) { /* memory only */ } }
@@ -75,8 +79,28 @@ const Mock = (() => {
       history: db.history.slice(-5),
       chatHistory: db.chat.slice(-30),
       streak: streak(),
+      notify: notifyView(),
       hasKey: true,
       _errors: []
+    };
+  }
+
+  function notifyView() {
+    return { ...db.notify, siteUrl: '', email: 'you@example.com (demo: nothing is sent)', tz: 'local' };
+  }
+
+  // Same checks as backend/Notify.js, so the demo refuses what the real thing refuses.
+  function cleanNotify(a) {
+    const int = (v, min, max, label) => {
+      const n = Number(v);
+      if (v === '' || v === null || !Number.isInteger(n) || n < min || n > max) need(false, label + ' must be a whole number from ' + min + ' to ' + max + '.');
+      return n;
+    };
+    const d = a.daily || {}, w = a.weekly || {}, n = a.nudge || {};
+    return {
+      daily: { enabled: d.enabled === true, hour: int(d.hour, 0, 23, 'The daily hour') },
+      weekly: { enabled: w.enabled === true, day: int(w.day, 0, 6, 'The weekly day'), hour: int(w.hour, 0, 23, 'The weekly hour') },
+      nudge: { enabled: n.enabled === true, hour: int(n.hour, 0, 23, 'The nudge hour') }
     };
   }
 
@@ -171,6 +195,8 @@ const Mock = (() => {
       case 'setTaskStatus':  setStatus(db.tasks, a, ['active', 'done', 'removed']); save(); return { ok: true };
       case 'logActivity':    logActivity(a); save(); return { streak: streak() };
       case 'submitFeedback': need(clip(a.text, 2000), 'Nothing to send.'); db.feedback.push({ date: iso(0), text: clip(a.text, 2000) }); save(); return { ok: true };
+      case 'saveNotifications': db.notify = cleanNotify(a); save(); return { notify: notifyView() };
+      case 'sendTestEmail':  return { sent: true, to: 'you@example.com', demo: true };
       case 'runDaily':       runDaily(); save(); return state();
       case 'runWeekly':      runWeekly(); save(); return state();
       case 'chat':           { const reply = chat(a); save(); return { reply, state: state() }; }
