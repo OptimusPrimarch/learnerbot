@@ -957,10 +957,6 @@ document.addEventListener('visibilitychange', () => {
 
 document.addEventListener('DOMContentLoaded', () => {
   $('chatForm').addEventListener('submit', sendChat);
-  if (window.matchMedia('(max-width: 680px)').matches) {   // start the chat dock collapsed on phones
-    $('chat').classList.add('collapsed');
-    document.querySelector('.chat-head').setAttribute('aria-expanded', 'false');
-  }
   switchView('dash');
   if (Api.isConfigured()) boot(); else showConnect();
 });
