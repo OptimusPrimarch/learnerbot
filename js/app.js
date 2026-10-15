@@ -28,8 +28,8 @@ let updateError = '';            // why the last update attempt failed, shown in
 // The backend version this copy of the site was written for. A sheet script older than this keeps working for
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
-const EXPECTED_BACKEND = '2026.10.9';
-const EXPECTED_RELEASE = '1.0';   // the name people see for that build (backend/Code.js APP_RELEASE)
+const EXPECTED_BACKEND = '2026.10.10';
+const EXPECTED_RELEASE = '1.1';   // the name people see for that build (backend/Code.js APP_RELEASE)
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const VERSION_KEY = 'learnerbot.backendVersion';
 
@@ -53,15 +53,14 @@ function fmtDate(d) {
     return new Date(d).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch (_) { return String(d); }
 }
-function tagColor(tag) {
+function tagHue(tag) {
   let h = 0;
   for (const c of String(tag)) h = ((h * 31) + c.charCodeAt(0)) & 0xffff;
-  const hue = h % 360;
-  return { bg: `hsl(${hue},45%,12%)`, fg: `hsl(${hue},70%,65%)`, border: `hsl(${hue},40%,28%)` };
+  return h % 360;
 }
+// The colors come from the theme (see .tag in style.css); only the hue is chosen here.
 function tagChip(tag) {
-  const { bg, fg, border } = tagColor(tag);
-  return `<span class="tag" style="background:${bg};color:${fg};border:1px solid ${border}">${esc(tag)}</span>`;
+  return `<span class="tag" style="--h:${tagHue(tag)}">${esc(tag)}</span>`;
 }
 
 /** Dotted versions like 2026.10.7: negative when a is older than b. */
@@ -205,6 +204,7 @@ function applyState(s, opts) {
   try { render(); }
   catch (e) { setStatus('Render error: ' + e.message, 'err'); console.error(e); return; }
   if (cached) return;   // instant paint from the saved copy; the refresh sets the status
+  syncLook(s.appearance);
   if (!Api.isDemo()) { try { localStorage.setItem(VERSION_KEY, String(s.version || '')); } catch (_) { /* informational only */ } }
   lastLoadAt = Date.now();
   $('statusChip').title = '';
@@ -604,9 +604,8 @@ function goalsCard(goals, tasks) {
 
   if (topTags.length) {
     const chips = topTags.map(t => {
-      const { bg, fg, border } = tagColor(t);
-      const outline = TAG_FILTER === t ? `;outline:2px solid ${fg};outline-offset:1px` : '';
-      return `<span class="tag" role="button" tabindex="0" style="background:${bg};color:${fg};border:1px solid ${border};cursor:pointer${outline}" data-act="filterTag" data-tag="${esc(t)}">${esc(t)}</span>`;
+      const outline = TAG_FILTER === t ? ';outline:2px solid hsl(var(--h),70%,var(--tag-fg-l));outline-offset:1px' : '';
+      return `<span class="tag" role="button" tabindex="0" style="--h:${tagHue(t)};cursor:pointer${outline}" data-act="filterTag" data-tag="${esc(t)}">${esc(t)}</span>`;
     }).join('');
     html += `<div class="tags" style="margin-bottom:10px">${chips}${TAG_FILTER ? `&nbsp;<button class="ghost icon" data-act="filterTag" data-tag="" style="font-size:11px;padding:2px 8px">✕ clear</button>` : ''}</div>`;
   }
@@ -826,6 +825,10 @@ const HANDLERS = {
   toggleToken: () => setTokenVisible($('cfgToken').type === 'password'),
   saveNotify,
   testEmail,
+  lookTheme:  d => setLook({ theme: d.v }),
+  lookAccent: d => setLook({ accent: d.v }),
+  lookSize:   d => setLook({ size: d.v }),
+  lookReset:  () => setLook({ theme: 'dark', accent: '', font: 'system', size: 'medium' }),
   voicePreset: d => { if (VOICE_PRESETS[d.preset]) { $('voiceText').value = VOICE_PRESETS[d.preset]; updateVoiceCount(); voiceMsg('Filled in. Edit it if you like, then press Save voice.'); } },
   saveVoice:   () => saveVoice($('voiceText').value),
   clearVoice:  () => { $('voiceText').value = ''; saveVoice(''); },
@@ -1082,6 +1085,77 @@ function testEmail() {
   });
 }
 
+// ---- look: theme, accent, font, size ------------------------------
+// js/look.js applies and caches the look on this device. Theme, accent and font are also saved in the sheet so
+// every device matches; size stays on the device. The sheet's copy wins when the page loads, unless a change made
+// here has not reached the sheet yet.
+let lookTimer = null;
+const lookMsg = (t, k) => paneMsg('lookMsg', t, k);
+const lookKnown = () => !!STATE && 'appearance' in STATE;   // a script that predates the look feature does not send the field
+
+function buildLookForm() {
+  const pill = (act, v, label) => `<button type="button" class="ghost run" data-act="${act}" data-v="${esc(v)}" aria-pressed="false">${esc(label)}</button>`;
+  $('lookTheme').innerHTML = Object.keys(Look.THEMES).map(k => pill('lookTheme', k, Look.THEMES[k].label)).join('');
+  $('lookSize').innerHTML = Object.keys(Look.SIZES).map(k => pill('lookSize', k, Look.SIZES[k].label)).join('');
+  $('lookFont').innerHTML = Object.keys(Look.FONTS).map(k => `<option value="${k}" style="font-family:${esc(Look.FONTS[k].stack)}">${esc(Look.FONTS[k].label)}</option>`).join('');
+  const sw = (v, label, auto) => `<button type="button" class="swatch${auto ? ' auto' : ''}" data-act="lookAccent" data-v="${esc(v)}" aria-label="${esc(label)}" title="${esc(label)}" aria-pressed="false"></button>`;
+  $('lookAccent').innerHTML = sw('', 'Theme default', true) + Look.SWATCHES.map(s => sw(s.color, s.label, false)).join('') +
+    '<input type="color" id="lookCustom" aria-label="Custom accent color" title="Pick any color">';
+}
+
+/** Shows which choices are active, and the swatches in the colors they will really have on this theme. */
+function syncLookForm() {
+  const look = Look.get();
+  document.querySelectorAll('#lookTheme button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === look.theme)));
+  document.querySelectorAll('#lookSize button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === look.size)));
+  document.querySelectorAll('#lookAccent .swatch').forEach(b => {
+    b.setAttribute('aria-pressed', String(b.dataset.v === look.accent));
+    if (b.dataset.v) b.style.setProperty('--sw', Look.fitAccent(b.dataset.v, look.theme).color);
+  });
+  $('lookFont').value = look.font;
+  const custom = $('lookCustom');
+  if (custom && document.activeElement !== custom) custom.value = Look.fitAccent(look.accent || Look.THEMES[look.theme].accent, look.theme).color;
+}
+
+function setLook(part) {
+  const before = Look.get();
+  const next = Look.set(part);
+  syncLookForm();
+  const synced = ['theme', 'accent', 'font'].some(k => before[k] !== next[k]);
+  if (!synced) { lookMsg('Text size is kept on this device.'); return; }
+  lookMsg(Api.isConfigured() ? 'Saving…' : 'Saved on this device.');
+  clearTimeout(lookTimer);
+  lookTimer = setTimeout(() => pushLook(), 700);
+}
+
+/** Saves the look in the sheet. `force` sends it even when nothing changed here (the first save from a device that already had a look). */
+function pushLook(force) {
+  const look = Look.get();
+  if (!look.dirty && !force) return;
+  if (!Api.isConfigured()) { lookMsg('Saved on this device.', 'good'); return; }
+  const sent = Look.payload(look);
+  request('Saving', 'saveAppearance', sent)
+    .then(({ res }) => {
+      if (STATE) { STATE.appearance = (res && res.appearance) || sent; saveCache(); }
+      // A newer change may have been made while this was in flight; only clear the flag if nothing changed.
+      if (JSON.stringify(Look.payload(Look.get())) === JSON.stringify(sent)) Look.markSaved(); else pushLook();
+      lookMsg('Saved in your sheet, so your other devices will match.', 'good');
+      if (pending === 0) setStatus('Ready', 'ok');
+    })
+    .catch(err => {
+      if (err.code === 'bad_action') lookMsg("Saved on this device. Your sheet's script needs the update before it can keep your look for you.", 'err');
+      else lookMsg('Saved on this device; it will be saved in your sheet next time. (' + err.message + ')', 'err');
+      if (isAuthError(err)) fail(err); else if (pending === 0) setStatus('Ready', 'ok');
+    });
+}
+
+/** When the page loads from the sheet: take the sheet's look, or send this device's look if the sheet has none yet. */
+function syncLook(saved) {
+  const local = Look.get();
+  if (saved && !local.dirty) { Look.adopt(saved); syncLookForm(); return; }
+  if (local.dirty || (!saved && !Look.isDefault(local))) { if (lookKnown()) pushLook(true); }
+}
+
 // ---- coach voice ---------------------------------------------
 // The user's own words, stored exactly as typed and handed to the coach as instructions on how to sound.
 // The presets only fill the box; nothing is saved until Save, and the text stays editable.
@@ -1322,6 +1396,8 @@ function renderVersionLine() {
 }
 
 function openSettings(message, kind) {
+  syncLookForm();
+  lookMsg('');
   renderNotifyForm();
   renderVoiceForm();
   renderVersionLine();
@@ -1459,6 +1535,10 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('DOMContentLoaded', () => {
   $('chatForm').addEventListener('submit', sendChat);
   $('voiceText').addEventListener('input', updateVoiceCount);
+  buildLookForm();
+  syncLookForm();
+  $('lookFont').addEventListener('change', e => setLook({ font: e.target.value }));
+  $('lookAccent').addEventListener('input', e => { if (e.target.id === 'lookCustom') setLook({ accent: e.target.value }); });
   $('phoneBox').addEventListener('toggle', () => { if ($('phoneBox').open && phoneUsable() && isMaster()) loadDevices(); });
   switchView('dash');
   if (!startFromLink()) { if (Api.isConfigured()) boot(); else showConnect(); }

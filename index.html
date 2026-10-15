@@ -14,6 +14,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>LearnerBot</title>
+<script src="js/look.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -92,6 +93,16 @@
         <button type="button" class="ghost" data-act="clearVoice">Back to default</button>
       </div>
       <p class="muted" style="font-size:12px;margin-top:10px">Your words are given to the coach exactly as you write them. The voice changes how it talks, not what it knows, and it applies to the daily focus, weekly review and chat replies.</p>
+    </details>
+    <details class="timings" id="lookBox">
+      <summary>Look</summary>
+      <p class="muted" id="lookIntro" style="margin:6px 0 4px">Theme, accent color and font are saved in your sheet, so every device you connect looks the same. Text size stays on this device.</p>
+      <div class="look-group"><label class="head" id="lookThemeLabel">Theme</label><div class="seg" id="lookTheme" role="group" aria-labelledby="lookThemeLabel"></div></div>
+      <div class="look-group"><label class="head" id="lookAccentLabel">Accent color</label><div class="swatches" id="lookAccent" role="group" aria-labelledby="lookAccentLabel"></div></div>
+      <div class="look-group"><label class="head" for="lookFont">Font</label><select id="lookFont"></select></div>
+      <div class="look-group"><label class="head" id="lookSizeLabel">Text size (this device)</label><div class="seg" id="lookSize" role="group" aria-labelledby="lookSizeLabel"></div></div>
+      <p id="lookMsg" class="cfg-msg" role="status"></p>
+      <div class="row"><button type="button" class="ghost" data-act="lookReset">Back to defaults</button></div>
     </details>
     <details class="timings" id="phoneBox">
       <summary>Add your phone</summary>

@@ -1,8 +1,24 @@
 # Changelog
 
 Each release has a **name** people see (1.0, 1.1, ...) and a **build id** the update check compares
-(2026.10.9). The build id only ever goes up. The site and the sheet's script both report them, and
-Settings shows "LearnerBot 1.0, build 2026.10.9".
+(2026.10.10). The build id only ever goes up. The site and the sheet's script both report them, and
+Settings shows "LearnerBot 1.1, build 2026.10.10".
+
+## 1.1 · build 2026.10.10 · 2026-10-15
+
+**Look**
+- Three themes: Dark (as before), Light and High contrast
+- Accent color: eight ready-made colors, a color picker, or the theme's own. A color that would be hard to read on
+  the chosen theme is nudged until it is readable, and button text switches between dark and light to match
+- Font: six choices (System, Humanist, Serif, Wide and clear, Monospace, Rounded) that use fonts already on the device,
+  so nothing is downloaded
+- Text size: Small, Medium or Large, kept on each device (a phone and a computer want different sizes)
+- Theme, accent and font are saved in your sheet, so every device you connect matches; the page also keeps a copy
+  on the device so it opens in the right colors straight away. Settings > Look
+- A sheet whose script has not been updated yet still remembers your look on that device, and sends it once the script is updated
+- Buttons now follow the chosen font too
+
+**Needs the script update:** yes (it saves the look in the Settings tab). Press **Update now**.
 
 ## 1.0 · build 2026.10.9 · 2026-10-15
 

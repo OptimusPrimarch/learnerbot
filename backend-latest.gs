@@ -14,7 +14,7 @@
 // The one place an update is ever downloaded from. It is a constant on purpose: nothing a caller
 // sends can change it.
 const LB_UPDATE_URL = 'https://optimusprimarch.github.io/learnerbot/backend-payload.js';
-const LB_BUILTIN_VERSION = '2026.10.9';
+const LB_BUILTIN_VERSION = '2026.10.10';
 const LB_ENTRIES = ["doGet","doPost","onOpen","menuSetGroqKey","menuShowConnection","menuResetToken","menuEmailsOff","_dailyJob","_weeklyJob","_nudgeJob"];
 const LB_CHUNK = 7000;            // characters per property (a property holds about 9 KB; the app text is plain ASCII)
 const LB_MIN_SIZE = 20000;        // a real app is never smaller than this...
@@ -574,6 +574,7 @@ const ACTIONS = {
     return { ok: true };
   },
   saveCoachVoice: a => ({ coachVoice: setCoachVoice(a.text) }),
+  saveAppearance: a => ({ appearance: setAppearance(a) }),
 
   saveNotifications: a => saveNotifications(a),
   sendTestEmail:     () => sendTestEmail(),
@@ -610,6 +611,7 @@ function getState() {
     streak:         safe('streak',   getStreak,                        0),
     weekMinutes:    safe('minutes',  weekMinutes,                      0),
     coachVoice:     safe('voice',    getCoachVoice,                    ''),
+    appearance:     safe('look',     getAppearance,                    null),
     notify:         safe('notify',   _notifyView,                      null),
     role:           _role,
     hasKey:         _hasKey(),
@@ -670,11 +672,16 @@ function _ensureHeaders() {
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.0';
-const APP_VERSION = '2026.10.9';
+const APP_RELEASE = '1.1';
+const APP_VERSION = '2026.10.10';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800 };
+
+// How the site looks is saved in the sheet so every device matches. Only these names are accepted; the site
+// keeps the same lists in js/look.js (a test fails if they drift apart).
+const APPEARANCE_THEMES = ['dark', 'light', 'contrast'];
+const APPEARANCE_FONTS = ['system', 'humanist', 'serif', 'wide', 'mono', 'rounded'];
 
 // ---- Script properties & settings ---------------------------
 
@@ -1728,6 +1735,37 @@ function setSetting(key, value, max) {
     _invalidate('Settings');
     return v;
   });
+}
+
+/** The saved look ({theme, accent, font}), or null when none has been saved or the saved text is not usable. */
+function getAppearance() {
+  const raw = getSetting('appearance');
+  if (!raw) return null;
+  try { return _cleanAppearance(JSON.parse(raw)); } catch (_) { return null; }
+}
+
+/**
+ * Checks a look and returns it in canonical form; throws on anything unknown. A missing theme or font means
+ * the default, and a blank accent means "the theme's own accent". An accent is a #rrggbb colour.
+ */
+function _cleanAppearance(a) {
+  if (!a || typeof a !== 'object' || Array.isArray(a)) throw _err('bad_request', 'That look is not valid.');
+  const theme = a.theme == null || a.theme === '' ? 'dark' : a.theme;
+  const font = a.font == null || a.font === '' ? 'system' : a.font;
+  if (typeof theme !== 'string' || APPEARANCE_THEMES.indexOf(theme) < 0) throw _err('bad_request', 'Unknown theme.');
+  if (typeof font !== 'string' || APPEARANCE_FONTS.indexOf(font) < 0) throw _err('bad_request', 'Unknown font.');
+  let accent = '';
+  if (a.accent != null && a.accent !== '') {
+    if (typeof a.accent !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(a.accent)) throw _err('bad_request', 'The accent color must look like #6ea8fe.');
+    accent = a.accent.toLowerCase();
+  }
+  return { theme: theme, accent: accent, font: font };
+}
+
+function setAppearance(a) {
+  const look = _cleanAppearance(a);
+  setSetting('appearance', JSON.stringify(look), 200);
+  return look;
 }
 
 function getCoachVoice()      { return getSetting('coach_voice'); }

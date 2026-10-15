@@ -1,6 +1,6 @@
 # LearnerBot (web)
 
-Current release: **1.0** (build 2026.10.9). See [CHANGELOG.md](CHANGELOG.md). A release has a name people see and a
+Current release: **1.1** (build 2026.10.10). See [CHANGELOG.md](CHANGELOG.md). A release has a name people see and a
 build id the update check compares; Settings shows both.
 
 A static front end for LearnerBot, hosted on GitHub Pages. It has no server of its own:
