@@ -1,0 +1,17 @@
+# LearnerBot (web)
+
+A static front end for LearnerBot, hosted on GitHub Pages. It has no server of its own:
+every person connects it to **their own** Google Sheet through a small Apps Script web
+app, so goals, journal entries and AI keys stay in their own Google account.
+
+- Open the site, then **⚙ Settings** to connect your sheet, or **Try demo data** to look around.
+- First-time setup for friends: [`setup.html`](setup.html).
+- No build step. Plain HTML, CSS and JavaScript:
+  - `js/api.js` is the only file that talks to the network
+  - `js/app.js` is the UI
+  - `js/mock.js` is the in-browser demo backend
+
+The URL and access token you paste into Settings live in your browser's local storage and
+are only ever sent to the Google Apps Script URL you entered (the URL is validated).
+
+Run it locally with any static server, for example `python -m http.server` in this folder.

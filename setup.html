@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0f1115">
+<title>LearnerBot setup</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="page-wrap">
+  <p><a href="./">← Back to LearnerBot</a></p>
+  <h1>Set up your own LearnerBot</h1>
+  <p class="muted">About ten minutes, once. You get your own private copy: your goals live in <em>your</em> Google Sheet, and the AI uses <em>your</em> free Groq key. Nobody else can see your data, and nothing is shared with the person who sent you here.</p>
+
+  <h2>1. Make your copy of the sheet</h2>
+  <ol>
+    <li>Open the template sheet the person who shared LearnerBot gave you.</li>
+    <li>Choose <b>File → Make a copy</b>. This also copies the small script that powers the sheet.</li>
+  </ol>
+
+  <h2>2. Get a free Groq API key</h2>
+  <ol>
+    <li>Sign up at <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a> and create a key. It starts with <code>gsk_</code>.</li>
+  </ol>
+
+  <h2>3. Save the key in your copy</h2>
+  <ol>
+    <li>In your copy of the sheet, wait a few seconds for a <b>LearnerBot</b> menu to appear in the menu bar (reload the page if it doesn't).</li>
+    <li>Choose <b>LearnerBot → 1. Set Groq API key…</b> and paste the key.</li>
+    <li>Google will ask you to authorize the script the first time. You may see <em>"Google hasn't verified this app."</em> That is expected, because the script is your own copy. Choose <b>Advanced → Go to … (unsafe)</b> and allow it.</li>
+  </ol>
+  <p class="note">The key is stored in the script's private properties. It is not written into the sheet, and it is never sent to this website.</p>
+
+  <h2>4. Publish your copy as a web app</h2>
+  <ol>
+    <li>In the sheet, choose <b>Extensions → Apps Script</b>.</li>
+    <li>Click <b>Deploy → New deployment</b>, then the gear icon and <b>Web app</b>.</li>
+    <li>Set <b>Execute as: Me</b> and <b>Who has access: Anyone</b>, then <b>Deploy</b>.</li>
+  </ol>
+  <p class="note">"Anyone" only means the URL is reachable. Every request must also carry your secret access token (next step), or it is refused.</p>
+
+  <h2>5. Connect this website to your sheet</h2>
+  <ol>
+    <li>Back in the sheet, choose <b>LearnerBot → 2. Show connection info</b>. Copy the <b>Web app URL</b> and the <b>Access token</b>.</li>
+    <li>Open <a href="./">LearnerBot</a>, click the <b>⚙</b> button, paste both, and press <b>Save &amp; test</b>.</li>
+  </ol>
+  <p>The URL and token are saved in this browser only. On another device or browser, paste them again.</p>
+
+  <h2>On your phone</h2>
+  <p>Open the site on your phone, paste the URL and token into ⚙ once, then add it to your home screen so it opens like an app: <b>Share → Add to Home Screen</b> on iPhone, or the browser menu → <b>Install app</b> / <b>Add to Home screen</b> on Android. Each device and browser needs the URL and token pasted once.</p>
+
+  <h2>Optional: daily and weekly emails</h2>
+  <p>Use <b>LearnerBot → Enable daily + weekly emails</b> in the sheet. It schedules a daily focus at 6am and a weekly review on Sundays at 6pm, sent to your Google account. Nothing runs on a schedule unless you turn this on, and <b>Disable emails</b> turns it off.</p>
+
+  <h2>Good to know</h2>
+  <ul>
+    <li><b>Keep the token private.</b> Anyone with both the URL and the token can read and change your goals. If it leaks, use <b>LearnerBot → Reset access token</b>, then paste the new one into ⚙.</li>
+    <li><b>Speed.</b> Each action is a round trip to Google, usually one to three seconds. AI actions (daily, weekly, chat) take 10–20 seconds.</li>
+    <li><b>Limits.</b> AI requests are capped at 40 an hour per copy to protect your Groq quota.</li>
+    <li><b>Updates.</b> The website updates for everyone automatically. Your copy of the sheet script only changes if you re-copy the template, so you may be asked to do that occasionally.</li>
+  </ul>
+</main>
+</body>
+</html>

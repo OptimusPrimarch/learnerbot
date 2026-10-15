@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0f1115">
+<meta name="description" content="LearnerBot: set goals, log what you did, and let an AI coach keep you on track. Your data stays in your own Google Sheet.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="LearnerBot">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>LearnerBot</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1><span class="dot">●</span> LearnerBot</h1>
+      <div class="chips">
+        <span class="chip" id="statusChip" role="status">Starting…</span>
+        <span class="chip demo" id="demoChip" hidden>Demo data</span>
+        <span class="chip" id="streakChip" hidden></span>
+      </div>
+    </div>
+    <nav class="tabs" aria-label="Views">
+      <button class="nav-btn" id="navDash" data-act="view" data-view="dash">Dashboard</button>
+      <button class="nav-btn" id="navHist" data-act="view" data-view="history">History</button>
+      <button class="nav-btn" data-act="settings" title="Settings" aria-label="Settings">⚙</button>
+    </nav>
+  </header>
+
+  <div id="mainGrid" class="grid"></div>
+  <div id="histView" hidden></div>
+</div>
+
+<!-- chat dock -->
+<div id="chat">
+  <div class="chat-head" data-act="chatToggle" role="button" tabindex="0" aria-expanded="true">
+    <span>💬 Talk to your dashboard</span><span>▾</span>
+  </div>
+  <div class="chat-body">
+    <div id="chatLog" aria-live="polite"></div>
+    <form class="chat-form" id="chatForm">
+      <input id="chatInput" type="text" placeholder="Say something…" autocomplete="off" aria-label="Message">
+      <button type="submit">→</button>
+    </form>
+  </div>
+</div>
+
+<dialog id="settings">
+  <div class="dlg">
+    <h2>Connect your LearnerBot</h2>
+    <p class="muted" style="font-size:14px">Your goals live in your own Google Sheet, and this page talks to it directly. Paste the two values from the sheet's <b>LearnerBot → Show connection info</b> menu. New here? Follow the <a href="setup.html">setup guide</a>.</p>
+    <label class="head" for="cfgUrl">Web app URL</label>
+    <input id="cfgUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="saveSettings">
+    <label class="head" for="cfgToken">Access token</label>
+    <input id="cfgToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="saveSettings">
+    <p id="cfgMsg" class="cfg-msg" role="alert"></p>
+    <div class="row">
+      <button type="button" data-act="saveSettings">Save &amp; test</button>
+      <button type="button" class="ghost" data-act="useDemo">Try demo data</button>
+      <button type="button" class="ghost" data-act="disconnect">Disconnect</button>
+      <button type="button" class="ghost" data-act="closeSettings">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/mock.js"></script>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
