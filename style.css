@@ -25,7 +25,7 @@ ul.plain li{padding:6px 0;border-bottom:1px solid var(--border)}
 ul.plain li:last-child{border-bottom:0}
 .goal-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:2px 0}
 .goal-left{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;flex:1}
-.goal-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+.goal-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;font-variant:small-caps}
 .pill{font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--border);white-space:nowrap;flex-shrink:0}
 .pill.high{color:var(--red);border-color:#622}
 .pill.medium{color:var(--warn);border-color:#653}
@@ -82,7 +82,7 @@ details.tasks > summary::-webkit-details-marker,details.subgoals > summary::-web
 .hist-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
 .hist-row:last-child{border:0}
 .hist-meta{font-size:12px;color:var(--muted);margin-left:auto;white-space:nowrap}
-.hist-title{flex:1;min-width:0}
+.hist-title{flex:1;min-width:0;font-variant:small-caps}
 
 /* chat dock */
 #chat{position:fixed;right:16px;bottom:16px;width:340px;max-width:calc(100vw - 32px);z-index:99}
@@ -121,8 +121,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .connect .row{justify-content:center;flex-wrap:wrap;margin-top:14px}
 dialog{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--r);padding:0;width:min(520px,calc(100vw - 32px))}
 dialog::backdrop{background:rgba(5,7,10,.7)}
-.dlg{padding:20px}
-.dlg h2{font-size:18px;margin-bottom:6px}
+.dlg{padding:0 20px 20px}
+/* The title bar stays put while the settings scroll, so Close is always in the top-right corner. */
+.dlg-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin:0 -20px 10px;padding:14px 20px 12px;background:var(--panel);border-bottom:1px solid var(--border);border-radius:var(--r) var(--r) 0 0}
+.dlg-close{flex:0 0 auto}
+.dlg h2{font-size:18px;margin:0}
 .dlg label.head{margin-top:14px;margin-bottom:6px}
 .dlg .row{flex-wrap:wrap;margin-top:16px}
 .cfg-msg{min-height:1.4em;margin-top:10px;font-size:13px;color:var(--muted)}
@@ -213,4 +217,7 @@ body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
   #toast{bottom:calc(76px + env(safe-area-inset-bottom))}
   .dlg{padding:16px}
   .dlg .row button{flex:1 1 40%}
+  .dlg{padding:0 16px 16px}
+  .dlg-head{margin:0 -16px 10px;padding:12px 16px 10px}
+  .dlg-head .dlg-close{flex:0 0 auto}
 }

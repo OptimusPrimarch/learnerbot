@@ -5,7 +5,7 @@ every person connects it to **their own** Google Sheet through a small Apps Scri
 app, so goals, journal entries and AI keys stay in their own Google account.
 
 - Open the site, then **⚙ Settings** to connect your sheet, or **Try demo data** to look around.
-- First-time setup for friends: [`setup.html`](setup.html).
+- First-time setup for friends: [`setup.html`](setup.html), or the printable [`LearnerBot-Setup-Guide.pdf`](LearnerBot-Setup-Guide.pdf) (desktop first, then phone).
 - No build step. Plain HTML, CSS and JavaScript:
   - `js/api.js` is the only file that talks to the network
   - `js/app.js` is the UI

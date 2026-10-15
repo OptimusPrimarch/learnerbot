@@ -55,7 +55,10 @@
 
 <dialog id="settings">
   <div class="dlg">
-    <h2>Connect your LearnerBot</h2>
+    <div class="dlg-head">
+      <h2>Connect your LearnerBot</h2>
+      <button type="button" class="ghost run dlg-close" data-act="closeSettings" aria-label="Close settings">Close</button>
+    </div>
     <p class="muted" style="font-size:14px">Your goals live in your own Google Sheet, and this page talks to it directly. Paste the two values from the sheet's <b>LearnerBot → Show connection info</b> menu. New here? Follow the <a href="setup.html">setup guide</a>.</p>
     <label class="head" for="cfgUrl">Web app URL</label>
     <input id="cfgUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="saveSettings">
@@ -66,7 +69,6 @@
       <button type="button" data-act="saveSettings">Save &amp; test</button>
       <button type="button" class="ghost" data-act="useDemo">Try demo data</button>
       <button type="button" class="ghost" data-act="disconnect">Disconnect</button>
-      <button type="button" class="ghost" data-act="closeSettings">Close</button>
     </div>
     <details class="timings" id="phoneBox">
       <summary>Add your phone</summary>
