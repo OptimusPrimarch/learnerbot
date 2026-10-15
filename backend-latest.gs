@@ -14,7 +14,7 @@
 // The one place an update is ever downloaded from. It is a constant on purpose: nothing a caller
 // sends can change it.
 const LB_UPDATE_URL = 'https://optimusprimarch.github.io/learnerbot/backend-payload.js';
-const LB_BUILTIN_VERSION = '2026.10.8';
+const LB_BUILTIN_VERSION = '2026.10.9';
 const LB_ENTRIES = ["doGet","doPost","onOpen","menuSetGroqKey","menuShowConnection","menuResetToken","menuEmailsOff","_dailyJob","_weeklyJob","_nudgeJob"];
 const LB_CHUNK = 7000;            // characters per property (a property holds about 9 KB; the app text is plain ASCII)
 const LB_MIN_SIZE = 20000;        // a real app is never smaller than this...
@@ -514,7 +514,7 @@ function callConcierge(context) {
 // ============================================================
 
 function doGet() {
-  return _json({ ok: true, data: { app: 'LearnerBot', version: APP_VERSION } });
+  return _json({ ok: true, data: { app: 'LearnerBot', release: APP_RELEASE, version: APP_VERSION } });
 }
 
 function doPost(e) {
@@ -549,7 +549,7 @@ function doPost(e) {
 }
 
 const ACTIONS = {
-  ping: () => ({ version: APP_VERSION, hasKey: _hasKey(), tz: _tzName(), role: _role }),
+  ping: () => ({ release: APP_RELEASE, version: APP_VERSION, hasKey: _hasKey(), tz: _tzName(), role: _role }),
   getState: () => getState(),
 
   // Small changes answer with just what the page needs (the page already updated itself),
@@ -613,6 +613,7 @@ function getState() {
     notify:         safe('notify',   _notifyView,                      null),
     role:           _role,
     hasKey:         _hasKey(),
+    release:        APP_RELEASE,
     version:        APP_VERSION,
     // Which copy of the app is running and whether the site can update it (the loader answers; null when there is none).
     appInfo:        safe('app',      () => (typeof lbInfo === 'function' ? lbInfo() : null), null),
@@ -667,7 +668,10 @@ function _ensureHeaders() {
 // ============================================================
 
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
-const APP_VERSION = '2026.10.8';
+// APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
+// and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
+const APP_RELEASE = '1.0';
+const APP_VERSION = '2026.10.9';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800 };

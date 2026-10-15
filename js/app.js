@@ -28,7 +28,8 @@ let updateError = '';            // why the last update attempt failed, shown in
 // The backend version this copy of the site was written for. A sheet script older than this keeps working for
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
-const EXPECTED_BACKEND = '2026.10.8';
+const EXPECTED_BACKEND = '2026.10.9';
+const EXPECTED_RELEASE = '1.0';   // the name people see for that build (backend/Code.js APP_RELEASE)
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const VERSION_KEY = 'learnerbot.backendVersion';
 
@@ -462,7 +463,7 @@ function renderNotices() {
       ? `<button data-act="updateApp"${updating ? ' disabled' : ''}>${updating ? 'Updating…' : 'Update now'}</button>`
       : `<a class="btn" href="update.html">Update now</a>`;
     out.push(`<div class="notice warn" role="status"><div>
-      <b>A newer version of LearnerBot is available for your sheet.</b>
+      <b>A newer version of LearnerBot (${esc(EXPECTED_RELEASE)}) is available for your sheet.</b>
       <div class="muted">${forceUpdateNotice ? 'What you just tried needs it. ' : ''}Your goals, key and settings stay exactly as they are. ${canUpdate ? 'It takes a few seconds.' : STATE.role === 'device' ? 'Update it from your computer.' : 'It takes about two minutes.'}</div>
       ${updateError ? `<div class="cfg-msg err" role="alert">That did not work: ${esc(updateError)} You can also <a href="update.html">update by hand</a>.</div>` : ''}
       <div class="notice-actions">${STATE.role === 'device' ? '' : action}${updating ? '' : '<button class="ghost" data-act="dismissNotice" data-kind="update">Not now</button>'}</div>
@@ -1310,10 +1311,10 @@ function renderVersionLine() {
   const btn = (act, label, busy) => `<button type="button" class="ghost run" data-act="${act}"${updating ? ' disabled' : ''}>${updating ? busy : label}</button>`;
   let html;
   if (backendOutdated()) {
-    html = `Your sheet's script is ${STATE.version ? 'version ' + esc(STATE.version) : 'an older version'}; the newest is ${esc(EXPECTED_BACKEND)}. ` +
+    html = `Your sheet's script is ${STATE.release ? 'LearnerBot ' + esc(STATE.release) + ', ' : ''}${STATE.version ? 'build ' + esc(STATE.version) : 'an older version'}; the newest is LearnerBot ${esc(EXPECTED_RELEASE)} (build ${esc(EXPECTED_BACKEND)}). ` +
       (info && master ? btn('updateApp', 'Update now', 'Updating…') : master ? '<a href="update.html">Update it (about 2 minutes)</a>.' : 'Update it from your computer.');
   } else {
-    html = `Your sheet's script is up to date (version ${esc(STATE.version || EXPECTED_BACKEND)}).`;
+    html = `Your sheet's script is up to date: LearnerBot ${esc(STATE.release || EXPECTED_RELEASE)}, build ${esc(STATE.version || EXPECTED_BACKEND)}.`;
   }
   if (info && info.canRollback && master) html += ' ' + btn('rollbackApp', 'Go back to ' + esc(info.rollbackTo), 'Going back…');
   if (info && info.loadError) html += `<div class="cfg-msg err">${esc(info.loadError)}</div>`;
@@ -1361,7 +1362,7 @@ async function saveSettings() {
   cfgMsg('Testing the connection…');
   try {
     const info = await Api.call('ping');
-    cfgMsg('Connected' + (info.version ? ' (backend ' + info.version + ')' : '') + '.' +
+    cfgMsg('Connected' + (info.version ? ' (' + (info.release ? 'LearnerBot ' + info.release + ', ' : '') + 'build ' + info.version + ')' : '') + '.' +
       (info.hasKey ? '' : ' No Groq key is saved yet, so the AI features will not work until you add one.'), 'good');
     resetSession();
     $('settings').close();

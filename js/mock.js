@@ -5,7 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.10.8';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.10.9';
+  const RELEASE = '1.0';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -92,6 +93,7 @@ const Mock = (() => {
       notify: notifyView(),
       role: 'master',
       hasKey: true,
+      release: RELEASE,
       version: VERSION,
       _errors: []
     };
@@ -224,7 +226,7 @@ const Mock = (() => {
     // Same contract as backend/Api.js: small changes answer with just what the page needs,
     // AI actions answer with the full state.
     switch (action) {
-      case 'ping':           return { version: VERSION, hasKey: true, tz: 'local' };
+      case 'ping':           return { release: RELEASE, version: VERSION, hasKey: true, tz: 'local' };
       case 'getState':       return state();
       case 'addGoal':        { const goal = addGoal(a); save(); return { goal }; }
       case 'updateGoal':     { const goal = updateGoal(a); save(); return { goal }; }
