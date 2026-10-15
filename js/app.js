@@ -22,11 +22,13 @@ let EDITING = null;       // id of the goal whose inline editor is open
 let forceUpdateNotice = false;   // an action the sheet's script did not recognise: show the update notice even if dismissed
 let keyNoticeDismissed = false;  // "no Groq key" reminder hidden for this visit
 let fromCache = false;           // STATE is the saved copy, not yet confirmed by the backend
+let updating = false;            // "Update now" or "go back" is running
+let updateError = '';            // why the last update attempt failed, shown in the banner
 
 // The backend version this copy of the site was written for. A sheet script older than this keeps working for
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
-const EXPECTED_BACKEND = '2026.10.7';
+const EXPECTED_BACKEND = '2026.10.8';
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const VERSION_KEY = 'learnerbot.backendVersion';
 
@@ -454,11 +456,16 @@ function renderNotices() {
   const out = [];
   let dismissed = '';
   try { dismissed = localStorage.getItem(DISMISS_KEY) || ''; } catch (_) { /* no storage: it just shows every visit */ }
-  if (backendOutdated() && (forceUpdateNotice || dismissed !== EXPECTED_BACKEND)) {
+  if (backendOutdated() && (forceUpdateNotice || dismissed !== EXPECTED_BACKEND || updating || updateError)) {
+    const canUpdate = !!STATE.appInfo && STATE.role !== 'device';   // the loader in the sheet can install it from here
+    const action = canUpdate
+      ? `<button data-act="updateApp"${updating ? ' disabled' : ''}>${updating ? 'Updating…' : 'Update now'}</button>`
+      : `<a class="btn" href="update.html">Update now</a>`;
     out.push(`<div class="notice warn" role="status"><div>
       <b>A newer version of LearnerBot is available for your sheet.</b>
-      <div class="muted">${forceUpdateNotice ? 'What you just tried needs it. ' : ''}It adds due dates, editing goals, time on log entries and a coach voice. Your goals and settings stay exactly as they are. It takes about two minutes.</div>
-      <div class="notice-actions"><a class="btn" href="update.html">Update now</a><button class="ghost" data-act="dismissNotice" data-kind="update">Not now</button></div>
+      <div class="muted">${forceUpdateNotice ? 'What you just tried needs it. ' : ''}Your goals, key and settings stay exactly as they are. ${canUpdate ? 'It takes a few seconds.' : STATE.role === 'device' ? 'Update it from your computer.' : 'It takes about two minutes.'}</div>
+      ${updateError ? `<div class="cfg-msg err" role="alert">That did not work: ${esc(updateError)} You can also <a href="update.html">update by hand</a>.</div>` : ''}
+      <div class="notice-actions">${STATE.role === 'device' ? '' : action}${updating ? '' : '<button class="ghost" data-act="dismissNotice" data-kind="update">Not now</button>'}</div>
     </div></div>`);
   }
   if (STATE.hasKey === false && !Api.isDemo() && !keyNoticeDismissed) {
@@ -857,6 +864,8 @@ const HANDLERS = {
   cancelEdit: () => { EDITING = null; if (STATE) render(); },
   saveGoal:   d => saveGoalEdit(d.id),
   clearDue:   d => { const el = $('egd_' + d.id); if (el) el.value = ''; },
+  updateApp:    () => runUpdate('update'),
+  rollbackApp:  () => { if (confirm('Go back to the earlier version of the script? Your goals and settings are not touched.')) runUpdate('rollback'); },
   dismissNotice: d => {
     if (d.kind === 'key') keyNoticeDismissed = true;
     else { forceUpdateNotice = false; try { localStorage.setItem(DISMISS_KEY, EXPECTED_BACKEND); } catch (_) { /* shows again next visit */ } }
@@ -1258,14 +1267,57 @@ function startFromLink() {
   return true;
 }
 
+/**
+ * Installs the newest app text from the LearnerBot site into the sheet's script (the loader there does the
+ * work and checks it), then reloads. Only the main connection may; a phone is told to use the computer.
+ */
+function runUpdate(kind) {
+  if (updating) return;
+  updating = true;
+  updateError = '';
+  renderNotices(); renderVersionLine();
+  const going = kind === 'rollback';
+  request(going ? 'Going back' : 'Updating the script', going ? 'rollbackApp' : 'updateApp', going ? {} : { expectVersion: EXPECTED_BACKEND })
+    .then(({ res }) => {
+      forceUpdateNotice = false;
+      const status = res && res.status;
+      if (!going && status === 'current') toast('Already up to date.');
+      if (going && status === 'none') toast('Nothing to go back to.');
+      return load().then(() => {
+        if (!going && status === 'updated') offerUndo('Updated the script to ' + res.to, () => runUpdate('rollback'));
+        else if (going && status === 'rolled_back') toast('Went back to version ' + res.to + '.');
+      });
+    })
+    .catch(err => {
+      updateError = err.message;
+      toast(err.message, 'error');
+      if (isAuthError(err)) fail(err);
+    })
+    .finally(() => {
+      updating = false;
+      if (pending === 0) setStatus(STATE ? 'Ready' : 'Not connected', STATE ? 'ok' : '');
+      if (STATE) renderNotices();
+      renderVersionLine();
+    });
+}
+
 /** The backend version line in Settings, with a way to update when the script is behind. */
 function renderVersionLine() {
   const p = $('versionLine');
   if (!STATE || Api.isDemo() || !Api.isConfigured()) { p.hidden = true; return; }
   p.hidden = false;
-  p.innerHTML = backendOutdated()
-    ? `Your sheet's script is ${STATE.version ? 'version ' + esc(STATE.version) : 'an older version'}; the newest is ${esc(EXPECTED_BACKEND)}. <a href="update.html">Update it (about 2 minutes)</a>.`
-    : `Your sheet's script is up to date (version ${esc(STATE.version || EXPECTED_BACKEND)}).`;
+  const info = STATE.appInfo, master = STATE.role !== 'device';
+  const btn = (act, label, busy) => `<button type="button" class="ghost run" data-act="${act}"${updating ? ' disabled' : ''}>${updating ? busy : label}</button>`;
+  let html;
+  if (backendOutdated()) {
+    html = `Your sheet's script is ${STATE.version ? 'version ' + esc(STATE.version) : 'an older version'}; the newest is ${esc(EXPECTED_BACKEND)}. ` +
+      (info && master ? btn('updateApp', 'Update now', 'Updating…') : master ? '<a href="update.html">Update it (about 2 minutes)</a>.' : 'Update it from your computer.');
+  } else {
+    html = `Your sheet's script is up to date (version ${esc(STATE.version || EXPECTED_BACKEND)}).`;
+  }
+  if (info && info.canRollback && master) html += ' ' + btn('rollbackApp', 'Go back to ' + esc(info.rollbackTo), 'Going back…');
+  if (info && info.loadError) html += `<div class="cfg-msg err">${esc(info.loadError)}</div>`;
+  p.innerHTML = html;
 }
 
 function openSettings(message, kind) {
