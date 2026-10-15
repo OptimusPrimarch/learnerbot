@@ -71,7 +71,11 @@ const Api = (() => {
       throw fail('not_json', 'Your backend did not answer with data. Redeploy it with "Execute as: Me" and "Who has access: Anyone".');
     }
     lastServer = (body && body.ms && typeof body.ms === 'object') ? body.ms : null;
-    if (!body || !body.ok) throw fail((body && body.code) || 'error', (body && body.error) || 'Something went wrong.');
+    if (!body || !body.ok) {
+      // A sheet script from before a feature existed answers "Unknown action"; say what that really means.
+      if (body && body.code === 'bad_action') throw fail('bad_action', 'Your sheet\'s script is out of date and does not know this yet. Open update.html to bring it up to date (about two minutes).');
+      throw fail((body && body.code) || 'error', (body && body.error) || 'Something went wrong.');
+    }
     return body.data;
   }
 

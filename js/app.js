@@ -18,6 +18,17 @@ let needsResync = false; // a full-state answer was skipped because newer local 
 let lastLoadAt = 0;
 let tmpCounter = 0;
 const ID_MAP = new Map(); // temporary id -> real id, once the server has answered
+let EDITING = null;       // id of the goal whose inline editor is open
+let forceUpdateNotice = false;   // an action the sheet's script did not recognise: show the update notice even if dismissed
+let keyNoticeDismissed = false;  // "no Groq key" reminder hidden for this visit
+let fromCache = false;           // STATE is the saved copy, not yet confirmed by the backend
+
+// The backend version this copy of the site was written for. A sheet script older than this keeps working for
+// everything it already did, but lacks the newer features, so the site says so and points to update.html.
+// (tests/backend.test.js fails if this and backend/Code.js drift apart.)
+const EXPECTED_BACKEND = '2026.10.7';
+const DISMISS_KEY = 'learnerbot.dismissedUpdate';
+const VERSION_KEY = 'learnerbot.backendVersion';
 
 // ---- tiny helpers --------------------------------------------
 const $ = id => document.getElementById(id);
@@ -50,7 +61,50 @@ function tagChip(tag) {
   return `<span class="tag" style="background:${bg};color:${fg};border:1px solid ${border}">${esc(tag)}</span>`;
 }
 
-// ---- status, toast -------------------------------------------
+/** Dotted versions like 2026.10.7: negative when a is older than b. */
+function cmpVer(a, b) {
+  const pa = String(a || '0').split('.').map(Number), pb = String(b || '0').split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+// A saved copy from before the version field existed has no version, which must not read as "old backend".
+const backendOutdated = () => !!STATE && !fromCache && !Api.isDemo() && cmpVer(STATE.version, EXPECTED_BACKEND) < 0;
+
+/** Whole days from today (this device's calendar) to a yyyy-mm-dd date; negative once it has passed. */
+function daysUntil(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
+  if (!m) return null;
+  const t = new Date();
+  return Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(t.getFullYear(), t.getMonth(), t.getDate())) / 864e5);
+}
+
+/** A small deadline chip: red once overdue, amber in the last few days, quiet otherwise. */
+function dueChip(due) {
+  const n = daysUntil(due);
+  if (n == null) return '';
+  const d = new Date(+due.slice(0, 4), +due.slice(5, 7) - 1, +due.slice(8, 10));
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const on = d.toLocaleDateString([], sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+  let text, cls = '';
+  if (n < 0) { text = (-n === 1 ? '1 day' : (-n) + ' days') + ' overdue'; cls = ' over'; }
+  else if (n === 0) { text = 'Due today'; cls = ' soon'; }
+  else if (n === 1) { text = 'Due tomorrow'; cls = ' soon'; }
+  else if (n <= 6) { text = 'Due ' + d.toLocaleDateString([], { weekday: 'short' }); cls = n <= 3 ? ' soon' : ''; }
+  else text = 'Due ' + on;
+  return `<span class="due${cls}" title="Due ${esc(d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }))}">${esc(text)}</span>`;
+}
+
+function fmtMinutes(m) {
+  const n = Math.round(Number(m) || 0);
+  if (n <= 0) return '';
+  const h = Math.floor(n / 60), r = n % 60;
+  return (h ? h + 'h' : '') + (h && r ? ' ' : '') + (r ? r + 'm' : '');
+}
+
+// ---- status, toast, undo -------------------------------------
 function setStatus(msg, kind) {
   const c = $('statusChip');
   c.className = 'chip' + (kind ? ' ' + kind : '');
@@ -66,10 +120,35 @@ function toast(msg, kind) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.className = ''; }, kind === 'error' ? 6000 : 2500);
 }
+
+// Complete / postpone / remove can be taken back for a few seconds. Only the latest action is offered,
+// and the bar goes away on its own, so it never lingers or stacks up.
+const UNDO_MS = 5000;
+let undoTimer = null, undoFn = null;
+function offerUndo(text, fn) {
+  undoFn = fn;
+  $('undoText').textContent = text;
+  $('undo').hidden = false;
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(hideUndo, UNDO_MS);
+}
+function hideUndo() {
+  clearTimeout(undoTimer);
+  undoFn = null;
+  $('undo').hidden = true;
+}
+const snippet = (s, n) => { const t = String(s || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+
 function updateStreak(n) {
   const chip = $('streakChip');
   chip.hidden = !(n > 0);
   if (n > 0) { chip.textContent = n + 'd streak'; chip.title = n + ' consecutive days with activity logged'; }
+}
+function updateWeekChip(mins) {
+  const chip = $('weekChip');
+  const text = fmtMinutes(mins);
+  chip.hidden = !text;
+  if (text) { chip.textContent = text + ' this week'; chip.title = 'Time you recorded on log entries over the last 7 days'; }
 }
 function updateModeUi() { $('demoChip').hidden = !Api.isDemo(); }
 
@@ -89,6 +168,7 @@ function request(label, action, args, onResult) {
 function fail(err, what) {
   console.error(err);
   if (isAuthError(err)) { setStatus('Not connected', 'err'); openSettings(err.message, 'err'); return; }
+  if (err && err.code === 'bad_action') { forceUpdateNotice = true; if (STATE) renderNotices(); }   // the sheet's script predates this feature
   toast(what ? `Could not save "${what}": ${err.message}` : err.message, 'error');
   // Resync so an optimistic change that did not stick disappears; wait until the queue is idle.
   if (pending === 0) { needsResync = false; setStatus('Error', 'err'); load(); }
@@ -117,10 +197,12 @@ function applyState(s, opts) {
   if (!s || !s.goals) return load();
   const cached = !!(opts && opts.cached);
   STATE = s;
+  fromCache = cached;
   if (!chatReady) { initChat(arr(s.chatHistory)); chatReady = true; }
   try { render(); }
   catch (e) { setStatus('Render error: ' + e.message, 'err'); console.error(e); return; }
   if (cached) return;   // instant paint from the saved copy; the refresh sets the status
+  if (!Api.isDemo()) { try { localStorage.setItem(VERSION_KEY, String(s.version || '')); } catch (_) { /* informational only */ } }
   lastLoadAt = Date.now();
   $('statusChip').title = '';
   if (arr(s._errors).length) setStatus('Partial error: ' + s._errors.join(' | '), 'err');
@@ -189,10 +271,15 @@ function clearCaches() {
 }
 
 // ---- optimistic local edits ----------------------------------
+// The sheet lists goals oldest first, which is id order; a goal coming back (undo, reactivate) goes back to its place.
+const idOrder = id => { const n = parseInt(id, 10); return isTmp(id) || Number.isNaN(n) ? Infinity : n; };
 function placeGoal(list, next, keep) {
   const i = list.findIndex(x => x.id === next.id);
   if (!keep) return i < 0 ? list : list.filter(x => x.id !== next.id);
-  if (i < 0) return [...list, next];
+  if (i < 0) {
+    const at = list.findIndex(x => idOrder(x.id) > idOrder(next.id));
+    return at < 0 ? [...list, next] : [...list.slice(0, at), next, ...list.slice(at)];
+  }
   const copy = list.slice();
   copy[i] = next;
   return copy;
@@ -240,13 +327,13 @@ function swapTask(tmp, real) {
   STATE.tasks = STATE.tasks.map(t => (t.id === tmp ? { ...real, status: t.status } : t));
 }
 
-function addGoalNow({ title, priority, tags, parentId }) {
+function addGoalNow({ title, priority, tags, parentId, due }) {
   if (!STATE) return;
   const tmp = newTmpId();
   const item = { id: tmp, title: title.slice(0, 200), priority: pri(priority), status: 'active', created: todayStr(),
-    tags: parseTags(tags), parentId: parentId ? String(parentId) : '' };
+    tags: parseTags(tags), parentId: parentId ? String(parentId) : '', due: due || '' };
   fire('Saving', 'addGoal',
-    () => ({ title, priority: item.priority, tags, parentId: item.parentId ? resolveId(item.parentId) : '' }),
+    () => ({ title, priority: item.priority, tags, parentId: item.parentId ? resolveId(item.parentId) : '', due: item.due }),
     { optimistic: () => { STATE.goals = [...STATE.goals, item]; },
       onResult: res => { if (res && res.goal && res.goal.id) ID_MAP.set(tmp, String(res.goal.id)); },
       onOk: res => swapGoal(tmp, res && res.goal),
@@ -269,6 +356,68 @@ const setGoal = (id, status, label) => fire(label, 'setGoalStatus',
   () => ({ id: resolveId(id), status }), { optimistic: () => setGoalLocal(id, status) });
 const setTask = (id, status, label) => fire(label, 'setTaskStatus',
   () => ({ id: resolveId(id), status }), { optimistic: () => setTaskLocal(id, status) });
+
+const findGoal = id => STATE && [...STATE.goals, ...STATE.historyGoals].find(x => x.id === String(id));
+
+/** Change a goal's status and, for a few seconds, offer to take it back. */
+function changeGoal(id, status, label, verb) {
+  const g = findGoal(id);
+  if (!g) return;
+  const before = g.status, title = g.title;
+  setGoal(id, status, label);
+  offerUndo(`${verb} “${snippet(title, 36)}”`, () => setGoal(id, before, 'Undoing'));
+}
+
+/** Same for a task; a removed task is put back where it was. */
+function changeTask(id, status, label, verb) {
+  const i = STATE ? STATE.tasks.findIndex(x => x.id === String(id)) : -1;
+  if (i < 0) return;
+  const task = { ...STATE.tasks[i] };
+  setTask(id, status, label);
+  offerUndo(`${verb} “${snippet(task.title, 36)}”`, () => {
+    if (!STATE) return;
+    if (status === 'removed') {
+      const back = { ...task, id: resolveId(task.id) };
+      if (!STATE.tasks.some(x => x.id === back.id)) { const at = Math.min(i, STATE.tasks.length); STATE.tasks = [...STATE.tasks.slice(0, at), back, ...STATE.tasks.slice(at)]; }
+    }
+    setTask(task.id, task.status, 'Undoing');
+  });
+}
+
+// ---- editing a goal --------------------------------------------
+function editGoalLocal(id, f) {
+  const patch = x => (x.id === String(id) ? { ...x, ...f } : x);
+  STATE.goals = STATE.goals.map(patch);
+  STATE.historyGoals = STATE.historyGoals.map(patch);
+}
+
+function saveGoalEdit(id) {
+  const g = findGoal(id);
+  if (!g) { EDITING = null; return render(); }
+  const title = $('egt_' + id) ? $('egt_' + id).value.trim() : g.title;
+  if (!title) { toast('A goal needs a title.', 'error'); return; }
+  const priority = pri($('egp_' + id).value);
+  const tags = parseTags($('egtags_' + id).value);
+  const due = $('egd_' + id) ? $('egd_' + id).value : g.due;
+  const fields = {};
+  if (title !== g.title) fields.title = title.slice(0, 200);
+  if (priority !== g.priority) fields.priority = priority;
+  if (tags.join(',') !== arr(g.tags).join(',')) fields.tags = tags.join(',');
+  if ((due || '') !== (g.due || '')) fields.due = due || '';
+  EDITING = null;
+  if (!Object.keys(fields).length) return render();
+  const local = { ...fields };
+  if ('tags' in local) local.tags = tags;
+  fire('Saving', 'updateGoal', () => ({ id: resolveId(id), fields }), {
+    optimistic: () => editGoalLocal(id, local),
+    onOk: res => {
+      // The server normalises (trim, upper-case tags); adopt its text once nothing newer is queued behind this.
+      const s = res && res.goal;
+      if (s && pending === 0) editGoalLocal(id, { title: s.title, priority: s.priority, tags: s.tags, due: s.due });
+    },
+    what: snippet(title, 40)
+  });
+}
 
 // ---- views ---------------------------------------------------
 function switchView(v) {
@@ -295,8 +444,38 @@ function restoreInputs(snap) {
   }
 }
 
+/**
+ * Banners above the dashboard: an update for the sheet's script (dismissed per site version), and a
+ * reminder when no Groq key is saved yet (dismissed for this visit). Both only ever add a nudge.
+ */
+function renderNotices() {
+  const box = $('notices');
+  if (!STATE) { box.innerHTML = ''; return; }
+  const out = [];
+  let dismissed = '';
+  try { dismissed = localStorage.getItem(DISMISS_KEY) || ''; } catch (_) { /* no storage: it just shows every visit */ }
+  if (backendOutdated() && (forceUpdateNotice || dismissed !== EXPECTED_BACKEND)) {
+    out.push(`<div class="notice warn" role="status"><div>
+      <b>A newer version of LearnerBot is available for your sheet.</b>
+      <div class="muted">${forceUpdateNotice ? 'What you just tried needs it. ' : ''}It adds due dates, editing goals, time on log entries and a coach voice. Your goals and settings stay exactly as they are. It takes about two minutes.</div>
+      <div class="notice-actions"><a class="btn" href="update.html">Update now</a><button class="ghost" data-act="dismissNotice" data-kind="update">Not now</button></div>
+    </div></div>`);
+  }
+  if (STATE.hasKey === false && !Api.isDemo() && !keyNoticeDismissed) {
+    out.push(`<div class="notice" role="status"><div>
+      <b>Add your Groq key to switch the coach on.</b>
+      <div class="muted">The daily focus, weekly review and chat need a free Groq key. On a computer, open your sheet and choose <b>LearnerBot → Set Groq API key</b> (step 3 of the <a href="setup.html">setup guide</a>).</div>
+      <div class="notice-actions"><button class="ghost" data-act="dismissNotice" data-kind="key">Not now</button></div>
+    </div></div>`);
+  }
+  box.innerHTML = out.join('');
+}
+
 function render() {
   updateStreak(STATE.streak || 0);
+  updateWeekChip(STATE.weekMinutes || 0);
+  document.body.classList.toggle('legacy', backendOutdated());   // hides controls an older script would silently ignore
+  renderNotices();
   const snap = snapshotInputs();
   if (VIEW === 'history') renderHistory(); else renderDash();
   restoreInputs(snap);
@@ -333,6 +512,9 @@ function showConnect() {
   setStatus('Not connected', '');
   updateModeUi();
   updateStreak(0);
+  updateWeekChip(0);
+  $('notices').innerHTML = '';
+  hideUndo();
 }
 
 // ---- history view --------------------------------------------
@@ -436,6 +618,9 @@ function goalsCard(goals, tasks) {
           <option value="low">Low</option>
         </select>
         <input id="goalTags" type="text" placeholder="Tags: WORK, AI (optional)" data-enter="addGoal" aria-label="Tags">
+      </div>
+      <div class="row">
+        <label class="due-field needs-new">Due <input id="goalDue" type="date" aria-label="Due date (optional)" data-enter="addGoal"></label>
         <button data-act="addGoal">Add</button>
       </div>
     </div>`;
@@ -472,20 +657,42 @@ function renderGoalNode(node, tasksMap) {
     ? `<details class="subgoals" data-key="s:${id}"${open('s:' + node.id)}><summary>${childLabel}</summary><div class="goal-indent"><ul class="plain">${node.children.map(c => renderGoalNode(c, tasksMap)).join('')}</ul></div></details>`
     : '';
 
-  return `<li${isTmp(node.id) ? ' class="pending" aria-busy="true"' : ''}>
+  // The deadline chip rides with the tags, so on a phone it sits on the tags line under the title.
+  const meta = [dueChip(node.due), ...arr(node.tags).map(tagChip)].join('');
+  const isNew = isTmp(node.id);
+
+  const editor = EDITING === node.id && !isNew ? `
+    <div class="edit-form">
+      <input id="egt_${id}" type="text" value="${esc(node.title)}" maxlength="200" data-enter="saveGoal" data-id="${id}" aria-label="Goal title">
+      <div class="row">
+        <select id="egp_${id}" style="width:auto" aria-label="Priority">${PRIORITIES.map(p => `<option value="${p}"${pri(node.priority) === p ? ' selected' : ''}>${p === 'medium' ? 'Med' : p[0].toUpperCase() + p.slice(1)}</option>`).join('')}</select>
+        <input id="egtags_${id}" type="text" value="${esc(arr(node.tags).join(', '))}" placeholder="Tags: WORK, AI (optional)" data-enter="saveGoal" data-id="${id}" aria-label="Tags">
+      </div>
+      <div class="row">
+        <label class="due-field needs-new">Due <input id="egd_${id}" type="date" value="${esc(node.due || '')}" aria-label="Due date (optional)" data-enter="saveGoal" data-id="${id}"></label>
+        <button type="button" class="ghost needs-new" data-act="clearDue" data-id="${id}">No deadline</button>
+      </div>
+      <div class="row"><button data-act="saveGoal" data-id="${id}">Save</button><button class="ghost" data-act="cancelEdit">Cancel</button></div>
+    </div>` : '';
+
+  const goalRow = editor || `
     <div class="goal-row">
       <span class="goal-left">
         <span class="pill ${pri(node.priority)}">${pri(node.priority)}</span>
         <span class="goal-title" title="${esc(node.title)}">${esc(node.title)}</span>
-        ${arr(node.tags).length ? `<span class="tags">${node.tags.map(tagChip).join('')}</span>` : ''}
+        ${meta ? `<span class="tags">${meta}</span>` : ''}
       </span>
       <span class="actions">
         <button class="icon ghost" data-act="toggleChildForm" data-id="${id}" title="Add sub-goal" aria-label="Add sub-goal">⊕</button>
+        ${isNew ? '' : `<button class="icon ghost needs-new" data-act="editGoal" data-id="${id}" title="Edit" aria-label="Edit goal">✎</button>`}
         <button class="icon ghost" data-act="complete" data-id="${id}" title="Complete" aria-label="Complete goal">✓</button>
         <button class="icon ghost" data-act="postpone" data-id="${id}" title="Postpone" aria-label="Postpone goal">⏸</button>
         <button class="icon ghost" data-act="remove" data-id="${id}" title="Remove" aria-label="Remove goal">✕</button>
       </span>
-    </div>
+    </div>`;
+
+  return `<li${isNew ? ' class="pending" aria-busy="true"' : ''}>
+    ${goalRow}
     ${pct !== null ? `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` : ''}
     <details class="tasks" data-key="t:${id}"${open('t:' + node.id)}>
       <summary>${taskLabel}</summary>
@@ -543,14 +750,22 @@ function planCard(rep) {
   return d;
 }
 
+// Time on a log entry is optional and in quarter-hours (blank = not recorded), up to eight hours.
+const MINUTE_STEPS = Array.from({ length: 32 }, (_, i) => (i + 1) * 15);
+
 function logCard() {
   const d = div('card');
   d.innerHTML = `
     <label class="head" for="logText">Log Activity</label>
     <p class="muted" style="font-size:13px;margin-bottom:8px">What happened this week? Feeds your next weekly review.</p>
-    <textarea id="logText" placeholder="e.g. Shipped the auth refactor; studied system design 30min." maxlength="2000"></textarea>
+    <textarea id="logText" placeholder="e.g. Shipped the auth refactor; studied system design." maxlength="2000"></textarea>
     <input id="logTags" type="text" placeholder="Tags: WORK, AI (optional)" style="margin-top:6px" aria-label="Tags">
-    <div class="row"><button data-act="logActivity">Log it</button></div>`;
+    <div class="row">
+      <select id="logMins" class="needs-new" style="width:auto" aria-label="Time spent (optional)">
+        <option value="">Time (optional)</option>${MINUTE_STEPS.map(m => `<option value="${m}">${fmtMinutes(m)}</option>`).join('')}
+      </select>
+      <button data-act="logActivity">Log it</button>
+    </div>`;
   return d;
 }
 
@@ -603,6 +818,9 @@ const HANDLERS = {
   toggleToken: () => setTokenVisible($('cfgToken').type === 'password'),
   saveNotify,
   testEmail,
+  voicePreset: d => { if (VOICE_PRESETS[d.preset]) { $('voiceText').value = VOICE_PRESETS[d.preset]; updateVoiceCount(); voiceMsg('Filled in. Edit it if you like, then press Save voice.'); } },
+  saveVoice:   () => saveVoice($('voiceText').value),
+  clearVoice:  () => { $('voiceText').value = ''; saveVoice(''); },
   sendPhoneLink,
   loadDevices,
   revokeDevice: d => { if (confirm('Disconnect this phone? It stops working immediately.')) revokeDevice(d.id); },
@@ -628,18 +846,30 @@ const HANDLERS = {
     if (STATE) render();
   },
 
-  complete:   d => setGoal(d.id, 'completed', 'Completing'),
-  postpone:   d => setGoal(d.id, 'postponed', 'Postponing'),
+  // Each of these can be taken back from the bar that appears for a few seconds, so none asks first.
+  complete:   d => changeGoal(d.id, 'completed', 'Completing', 'Completed'),
+  postpone:   d => changeGoal(d.id, 'postponed', 'Postponing', 'Postponed'),
   reactivate: d => setGoal(d.id, 'active', 'Reactivating'),
-  remove:     d => { if (confirm('Remove this goal?')) setGoal(d.id, 'archived', 'Removing'); },
+  remove:     d => changeGoal(d.id, 'archived', 'Removing', 'Removed'),
+  undo:       () => { const fn = undoFn; hideUndo(); if (fn) fn(); },
+
+  editGoal:   d => { EDITING = d.id; if (STATE) render(); const t = $('egt_' + d.id); if (t) { t.focus(); t.select(); } },
+  cancelEdit: () => { EDITING = null; if (STATE) render(); },
+  saveGoal:   d => saveGoalEdit(d.id),
+  clearDue:   d => { const el = $('egd_' + d.id); if (el) el.value = ''; },
+  dismissNotice: d => {
+    if (d.kind === 'key') keyNoticeDismissed = true;
+    else { forceUpdateNotice = false; try { localStorage.setItem(DISMISS_KEY, EXPECTED_BACKEND); } catch (_) { /* shows again next visit */ } }
+    renderNotices();
+  },
 
   // Fields are cleared before the optimistic render, so the re-render does not put the typed text back.
   addGoal: () => {
     const title = val('goalTitle');
     if (!title) return;
-    const priority = val('goalPri'), tags = val('goalTags');
-    clearFields('goalTitle', 'goalTags');
-    addGoalNow({ title, priority, tags });
+    const priority = val('goalPri'), tags = val('goalTags'), due = val('goalDue');
+    clearFields('goalTitle', 'goalTags', 'goalDue');
+    addGoalNow({ title, priority, tags, due });
   },
   addChild: d => {
     const title = val('cgt_' + d.id);
@@ -661,22 +891,29 @@ const HANDLERS = {
     OPEN_DETAILS.add('t:' + d.id);
     addTaskNow(d.id, title);
   },
-  completeTask: d => setTask(d.id, 'done', 'Saving'),
+  completeTask: d => changeTask(d.id, 'done', 'Saving', 'Task done'),
   reopenTask:   d => setTask(d.id, 'active', 'Saving'),
-  removeTask:   d => setTask(d.id, 'removed', 'Saving'),
+  removeTask:   d => changeTask(d.id, 'removed', 'Saving', 'Removed task'),
 
   logActivity: () => {
     const text = val('logText'), tags = val('logTags');
     if (!text) return;
-    clearFields('logText', 'logTags');
-    fire('Saving', 'logActivity', { text, tags }, {
+    const minutes = Number(val('logMins')) || 0;
+    clearFields('logText', 'logTags', 'logMins');
+    const args = { text, tags };
+    if (minutes) args.minutes = minutes;
+    fire('Saving', 'logActivity', args, {
+      optimistic: () => { if (minutes) STATE.weekMinutes = (STATE.weekMinutes || 0) + minutes; },
       onOk: res => {
         if (res && res.streak != null && STATE) { STATE.streak = res.streak; updateStreak(res.streak); }
-        toast('Logged.');
+        if (res && res.weekMinutes != null && STATE) { STATE.weekMinutes = res.weekMinutes; updateWeekChip(res.weekMinutes); }
+        toast(minutes ? 'Logged ' + fmtMinutes(minutes) + '.' : 'Logged.');
       },
       onFail: () => {   // put the text back so nothing typed is lost
+        if (minutes && STATE) STATE.weekMinutes = Math.max(0, (STATE.weekMinutes || 0) - minutes);
         if ($('logText') && !$('logText').value) $('logText').value = text;
         if ($('logTags') && !$('logTags').value) $('logTags').value = tags;
+        if (minutes && $('logMins') && !$('logMins').value) $('logMins').value = String(minutes);
       },
       what: text.length > 40 ? text.slice(0, 40) + '…' : text
     });
@@ -706,6 +943,9 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     const fn = HANDLERS[e.target.dataset.enter];
     if (fn) fn(e.target.dataset, e.target);
+  } else if (e.key === 'Escape' && e.target.closest && e.target.closest('.edit-form')) {
+    e.preventDefault();
+    HANDLERS.cancelEdit();
   } else if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"][data-act]')) {
     e.preventDefault();
     e.target.click();
@@ -830,6 +1070,55 @@ function testEmail() {
   notifyRequest('Sending', 'sendTestEmail', {}, res => {
     notifyMsg(res && res.demo ? 'Demo mode: no email is really sent.' : `Sent to ${res.to}. Check your inbox (and the spam folder).`, 'good');
   });
+}
+
+// ---- coach voice ---------------------------------------------
+// The user's own words, stored exactly as typed and handed to the coach as instructions on how to sound.
+// The presets only fill the box; nothing is saved until Save, and the text stays editable.
+const VOICE_MAX = 800;
+const VOICE_PRESETS = {
+  gentle: 'Be warm and encouraging. Celebrate small wins, go easy on misses, and suggest small, doable next steps. Never guilt-trip me.',
+  straight: 'Be direct and honest. No sugar-coating and no filler. Tell me plainly what is working, what is not, and what to do next.',
+  sergeant: 'Coach me like a drill sergeant: short, loud, demanding. Hold me to my deadlines, call out excuses and missed days, and push me to do the next thing right now.',
+  roast: 'Roast me. Be funny and sharp about the things I missed or put off, then give me a real next step. Tease my habits and my excuses, never me as a person.',
+  mentor: 'Be a calm, experienced mentor. Ask what is really blocking me, keep perspective, and keep your advice short and practical.'
+};
+const voiceMsg = (t, k) => paneMsg('voiceMsg', t, k);
+
+function updateVoiceCount() {
+  const n = $('voiceText').value.length;
+  $('voiceCount').textContent = n + ' / ' + VOICE_MAX;
+}
+
+function renderVoiceForm() {
+  $('voiceText').value = (STATE && STATE.coachVoice) || '';
+  $('voiceText').maxLength = VOICE_MAX;
+  updateVoiceCount();
+  voiceMsg('');
+  $('voiceIntro').textContent = !Api.isConfigured()
+    ? 'Connect first, then you can choose how your coach sounds.'
+    : (STATE && STATE.coachVoice)
+      ? 'Your coach is using the voice below. Change it any time.'
+      : 'Nothing set yet, so your coach uses its default voice. Pick a starting point or write your own.';
+}
+
+function saveVoice(text) {
+  if (!Api.isConfigured()) return voiceMsg('Connect first (the fields above).', 'err');
+  voiceMsg('Saving…');
+  request('Saving', 'saveCoachVoice', { text })
+    .then(({ res }) => {
+      const v = res && typeof res.coachVoice === 'string' ? res.coachVoice : text;
+      if (STATE) { STATE.coachVoice = v; saveCache(); }
+      $('voiceText').value = v;
+      updateVoiceCount();
+      voiceMsg(v ? 'Saved. Your next daily focus, review and chat replies will use this voice.' : 'Cleared. Your coach is back to its default voice.', 'good');
+      $('voiceIntro').textContent = v ? 'Your coach is using the voice below. Change it any time.' : 'Nothing set yet, so your coach uses its default voice. Pick a starting point or write your own.';
+      if (pending === 0) setStatus('Ready', 'ok');
+    })
+    .catch(err => {
+      voiceMsg(err.message, 'err');
+      if (isAuthError(err)) fail(err); else if (pending === 0) setStatus('Ready', 'ok');
+    });
 }
 
 // ---- phone pairing -------------------------------------------
@@ -969,8 +1258,20 @@ function startFromLink() {
   return true;
 }
 
+/** The backend version line in Settings, with a way to update when the script is behind. */
+function renderVersionLine() {
+  const p = $('versionLine');
+  if (!STATE || Api.isDemo() || !Api.isConfigured()) { p.hidden = true; return; }
+  p.hidden = false;
+  p.innerHTML = backendOutdated()
+    ? `Your sheet's script is ${STATE.version ? 'version ' + esc(STATE.version) : 'an older version'}; the newest is ${esc(EXPECTED_BACKEND)}. <a href="update.html">Update it (about 2 minutes)</a>.`
+    : `Your sheet's script is up to date (version ${esc(STATE.version || EXPECTED_BACKEND)}).`;
+}
+
 function openSettings(message, kind) {
   renderNotifyForm();
+  renderVoiceForm();
+  renderVersionLine();
   renderPhoneBox();
   renderTimings();
   const cfg = Api.getConfig();
@@ -1034,6 +1335,10 @@ function setTokenVisible(show) {
 
 function resetSession() {
   STATE = null;
+  fromCache = false;
+  forceUpdateNotice = false;
+  EDITING = null;
+  hideUndo();
   chatReady = false;
   needsResync = false;
   $('chatLog').innerHTML = '';
@@ -1100,6 +1405,7 @@ document.addEventListener('visibilitychange', () => {
 
 document.addEventListener('DOMContentLoaded', () => {
   $('chatForm').addEventListener('submit', sendChat);
+  $('voiceText').addEventListener('input', updateVoiceCount);
   $('phoneBox').addEventListener('toggle', () => { if ($('phoneBox').open && phoneUsable() && isMaster()) loadDevices(); });
   switchView('dash');
   if (!startFromLink()) { if (Api.isConfigured()) boot(); else showConnect(); }

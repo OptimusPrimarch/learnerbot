@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0f1115">
+<title>Update LearnerBot</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="page-wrap">
+  <p><a href="./">← Back to LearnerBot</a></p>
+  <h1>Update your sheet's script</h1>
+  <p class="muted">About two minutes. This replaces only the <em>code</em> inside your copy of the sheet. Your goals, your Groq key, your access token and your connected phones are not touched, and the web address stays the same, so nothing needs reconnecting.</p>
+  <p class="small muted" id="versions" style="font-size:13px"></p>
+
+  <h2>1. Copy the new code</h2>
+  <div class="row" style="margin-top:6px;flex-wrap:wrap">
+    <button type="button" id="copyBtn">Copy the new backend code</button>
+    <a class="btn ghost-link" href="backend-latest.gs" download="Code.gs" id="dlLink">or download it as a file</a>
+  </div>
+  <p id="copyMsg" class="cfg-msg" role="status"></p>
+  <div id="manual" hidden>
+    <p class="note">Your browser did not allow copying automatically. Click inside the box, press <b>Ctrl+A</b> then <b>Ctrl+C</b> (<b>Cmd</b> on a Mac), and carry on.</p>
+    <textarea id="codeBox" rows="6" readonly spellcheck="false" style="font:12px ui-monospace,Consolas,monospace"></textarea>
+  </div>
+
+  <h2>2. Paste it over your script</h2>
+  <ol>
+    <li>Open your LearnerBot sheet and choose <b>Extensions → Apps Script</b>.</li>
+    <li>In the file list on the left, click <b>Code.gs</b>. It should be the only file.</li>
+    <li>Click inside the code, press <b>Ctrl+A</b> to select all of it, then <b>Ctrl+V</b> to paste the new code over it (<b>Cmd</b> instead of Ctrl on a Mac).</li>
+    <li>Click the <b>Save</b> icon (or press <b>Ctrl+S</b>).</li>
+  </ol>
+
+  <h2>3. Publish the new version</h2>
+  <p>Saving is not enough: the web app keeps running the old code until you publish a new version of it.</p>
+  <ol>
+    <li>Click <b>Deploy → Manage deployments</b>.</li>
+    <li>Click the <b>pencil</b> (Edit) icon on your web app.</li>
+    <li>Under <b>Version</b>, choose <b>New version</b>, then click <b>Deploy</b>.</li>
+  </ol>
+  <p class="note">Choose <b>Manage deployments</b> and edit the existing one. <b>Do not</b> choose <em>New deployment</em>: that makes a second web app with a different address, and LearnerBot would keep talking to the old one.</p>
+
+  <h2>4. Check it worked</h2>
+  <p>Reload <a href="./">LearnerBot</a>. The update notice disappears and <b>⚙ → Your sheet's script</b> says it is up to date.</p>
+
+  <h2>If something goes wrong</h2>
+  <ul>
+    <li><b>Saving shows a red error mentioning "already been declared".</b> There is more than one file in the script. Delete every file except <b>Code.gs</b> (hover over a file, click the three dots, <b>Delete</b>), then paste again.</li>
+    <li><b>LearnerBot still says it is out of date.</b> The new version was probably not published. Repeat step 3 and make sure <b>New version</b> is chosen.</li>
+    <li><b>LearnerBot says it cannot reach your backend.</b> If you made a <em>New deployment</em> by mistake, copy its Web app URL from <b>Deploy → Manage deployments</b> into <b>⚙</b> in LearnerBot, or delete it and edit the original instead.</li>
+    <li><b>Google asks you to review permissions.</b> That is normal after an update. Choose <b>Review permissions</b>, then <b>Advanced → Go to … (unsafe)</b> and allow it, exactly as when you first set it up.</li>
+  </ul>
+</main>
+<script>
+'use strict';
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var code = null;
+
+  function msg(text, kind) {
+    var p = $('copyMsg');
+    p.textContent = text || '';
+    p.className = 'cfg-msg' + (kind ? ' ' + kind : '');
+  }
+
+  function fetchCode() {
+    if (code) return Promise.resolve(code);
+    return fetch('backend-latest.gs', { cache: 'no-cache' }).then(function (r) {
+      if (!r.ok) throw new Error('The code could not be loaded (' + r.status + ').');
+      return r.text();
+    }).then(function (t) {
+      if (!/function doPost\(/.test(t)) throw new Error('The downloaded file does not look like the LearnerBot code.');
+      code = t;
+      return t;
+    });
+  }
+
+  function latestVersion(t) { var m = /const APP_VERSION = '([^']+)'/.exec(t || ''); return m ? m[1] : ''; }
+
+  function showVersions(t) {
+    var latest = latestVersion(t), mine = '';
+    try { mine = localStorage.getItem('learnerbot.backendVersion') || ''; } catch (e) { /* not available */ }
+    $('versions').textContent = (mine ? 'Your sheet\'s script was last seen at version ' + mine + '. ' : '') + (latest ? 'The newest version is ' + latest + '.' : '');
+  }
+
+  function copyText(t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+    return Promise.reject(new Error('no clipboard'));
+  }
+
+  $('copyBtn').addEventListener('click', function () {
+    msg('Loading the new code…');
+    fetchCode().then(function (t) {
+      showVersions(t);
+      return copyText(t).then(function () {
+        msg('Copied (version ' + (latestVersion(t) || '?') + ', ' + Math.round(t.length / 1024) + ' KB). Now do step 2: paste it into Code.gs.', 'good');
+        $('manual').hidden = true;
+      }, function () {
+        $('codeBox').value = t;
+        $('manual').hidden = false;
+        $('codeBox').focus();
+        $('codeBox').select();
+        msg('Could not copy automatically. Use the box below.', 'err');
+      });
+    }).catch(function (e) { msg(e.message + ' You can also use the download link.', 'err'); });
+  });
+
+  fetchCode().then(showVersions).catch(function () { /* the button reports the problem if it is clicked */ });
+}());
+</script>
+</body>
+</html>

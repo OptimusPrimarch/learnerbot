@@ -25,6 +25,7 @@
         <span class="chip" id="statusChip" role="status">Starting…</span>
         <span class="chip demo" id="demoChip" hidden>Demo data</span>
         <span class="chip" id="streakChip" hidden></span>
+        <span class="chip" id="weekChip" hidden></span>
       </div>
     </div>
     <nav class="tabs" aria-label="Views">
@@ -35,6 +36,7 @@
     </nav>
   </header>
 
+  <div id="notices"></div>
   <div id="mainGrid" class="grid"></div>
   <div id="histView" hidden></div>
 </div>
@@ -70,6 +72,27 @@
       <button type="button" class="ghost" data-act="useDemo">Try demo data</button>
       <button type="button" class="ghost" data-act="disconnect">Disconnect</button>
     </div>
+    <p id="versionLine" class="muted" style="font-size:13px;margin-top:12px" hidden></p>
+    <details class="timings needs-new" id="voiceBox">
+      <summary>Coach voice</summary>
+      <p class="muted" id="voiceIntro" style="margin:6px 0 8px"></p>
+      <div class="presets" role="group" aria-label="Starting points">
+        <button type="button" class="ghost run" data-act="voicePreset" data-preset="gentle">Gentle</button>
+        <button type="button" class="ghost run" data-act="voicePreset" data-preset="straight">Straight talk</button>
+        <button type="button" class="ghost run" data-act="voicePreset" data-preset="sergeant">Drill sergeant</button>
+        <button type="button" class="ghost run" data-act="voicePreset" data-preset="roast">Roast me</button>
+        <button type="button" class="ghost run" data-act="voicePreset" data-preset="mentor">Calm mentor</button>
+      </div>
+      <label class="head" for="voiceText" style="margin-top:12px">How should your coach sound?</label>
+      <textarea id="voiceText" rows="4" maxlength="800" placeholder="Write it in your own words, like: Be blunt. Remind me when a deadline is close. A little humour is fine." spellcheck="true"></textarea>
+      <div class="voice-foot"><span class="muted" id="voiceCount">0 / 800</span></div>
+      <p id="voiceMsg" class="cfg-msg" role="status"></p>
+      <div class="row">
+        <button type="button" data-act="saveVoice">Save voice</button>
+        <button type="button" class="ghost" data-act="clearVoice">Back to default</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:10px">Your words are given to the coach exactly as you write them. The voice changes how it talks, not what it knows, and it applies to the daily focus, weekly review and chat replies.</p>
+    </details>
     <details class="timings" id="phoneBox">
       <summary>Add your phone</summary>
       <p class="muted" id="phoneIntro" style="margin:6px 0 4px"></p>
@@ -107,7 +130,10 @@
   </div>
 </dialog>
 
-<div id="toast" role="status" aria-live="polite"></div>
+<div id="toasts">
+  <div id="undo" role="status" hidden><span id="undoText"></span><button type="button" class="ghost run" id="undoBtn" data-act="undo">Undo</button></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+</div>
 
 <script src="js/mock.js"></script>
 <script src="js/api.js"></script>
