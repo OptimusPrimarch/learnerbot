@@ -766,7 +766,10 @@ function openSettings(message, kind) {
 }
 
 async function saveSettings() {
-  const url = $('cfgUrl').value.trim();
+  // The deployment dialog shows both a Deployment ID and a Web app URL; accept either.
+  const rawUrl = $('cfgUrl').value.trim();
+  const url = /^AKfycb[A-Za-z0-9_-]{40,}$/.test(rawUrl) ? 'https://script.google.com/macros/s/' + rawUrl + '/exec' : rawUrl;
+  $('cfgUrl').value = url;
   const prev = Api.getConfig();
   const typed = $('cfgToken').value.trim();
   // A saved token belongs to the URL it was saved with; never carry it over to a different backend.
@@ -793,9 +796,15 @@ async function saveSettings() {
     boot();
   } catch (e) {
     Api.setConfig(prev);
-    cfgMsg(e.code === 'unauthorized'
-      ? 'That backend answered, but rejected the token. A token only works with its own sheet, so copy the URL and the token from the same sheet\'s LearnerBot → Show connection info window. (Use Show to check what was pasted.)'
-      : e.message, 'err');
+    let text = e.code === 'unauthorized'
+      ? 'That backend answered, but rejected the token. A token only works with its own sheet, so use the token from the same sheet as this URL (LearnerBot → Show connection info). Use Show to check what was pasted.'
+      : e.message;
+    // Deployed web apps have ids of about 70 characters; a short one usually means the address came from the wrong place.
+    const idLen = (url.split('/')[5] || '').length;
+    if ((e.code === 'network' || e.code === 'not_json') && idLen > 0 && idLen < 60) {
+      text += ` Also, the id in this address is only ${idLen} characters, where a deployed web app normally has about 70, so it is probably the wrong address. Copy the Web app URL from Deploy → Manage deployments in the script editor.`;
+    }
+    cfgMsg(text, 'err');
   }
 }
 

@@ -40,14 +40,16 @@
     <li>In the sheet, choose <b>Extensions → Apps Script</b>.</li>
     <li>Click <b>Deploy → New deployment</b>, then the gear icon and <b>Web app</b>.</li>
     <li>Set <b>Execute as: Me</b> and <b>Who has access: Anyone</b>, then <b>Deploy</b>.</li>
+    <li>Copy the <b>Web app URL</b> it shows (it ends in <code>/exec</code>). You can find it again any time under <b>Deploy → Manage deployments</b>.</li>
   </ol>
   <p class="note">"Anyone" only means the URL is reachable. Every request must also carry your secret access token (next step), or it is refused.</p>
 
   <h2>5. Connect this website to your sheet</h2>
   <ol>
-    <li>Back in the sheet, choose <b>LearnerBot → 2. Show connection info</b>. Copy the <b>Web app URL</b> and the <b>Access token</b>.</li>
-    <li>Open <a href="./">LearnerBot</a>, click the <b>⚙</b> button, paste both, and press <b>Save &amp; test</b>.</li>
+    <li>Back in the sheet, choose <b>LearnerBot → 2. Show connection info</b> and copy the <b>Access token</b>. (If a Copy button does nothing, click the box and press Ctrl+C.)</li>
+    <li>Open <a href="./">LearnerBot</a>, click the <b>⚙</b> button, paste the <b>Web app URL</b> from step 4 and the token, and press <b>Save &amp; test</b>.</li>
   </ol>
+  <p class="note">The URL and the token must come from the <em>same</em> copy of the sheet. If the site says it can't reach your backend, the URL is almost always the problem: copy it again from <b>Deploy → Manage deployments</b>.</p>
   <p>The URL and token are saved in this browser only. On another device or browser, paste them again.</p>
 
   <h2>On your phone</h2>
