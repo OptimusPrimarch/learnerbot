@@ -85,8 +85,12 @@ const Mock = (() => {
   function addGoal(a) {
     const title = clip(a.title, 200);
     need(title, 'A goal needs a title.');
-    db.goals.push({ id: nextId(db.goals), title, priority: PRI[a.priority] != null ? a.priority : 'medium', status: 'active',
-      created: iso(0), tags: tags(a.tags), parentId: a.parentId ? String(a.parentId) : '' });
+    const parent = a.parentId ? String(a.parentId) : '';
+    if (parent && !db.goals.some(g => g.id === parent)) { const e = new Error('The parent goal does not exist.'); e.code = 'not_found'; throw e; }
+    const goal = { id: nextId(db.goals), title, priority: PRI[a.priority] != null ? a.priority : 'medium', status: 'active',
+      created: iso(0), tags: tags(a.tags), parentId: parent };
+    db.goals.push(goal);
+    return { ...goal };
   }
   function setStatus(list, a, allowed) {
     need(allowed.includes(a.status), 'Unknown status.');
@@ -148,28 +152,30 @@ const Mock = (() => {
   async function call(action, a) {
     const ai = ['runDaily', 'runWeekly', 'chat'].includes(action);
     await wait(ai ? 900 : 250);
+    // Same contract as backend/Api.js: small changes answer with just what the page needs,
+    // AI actions answer with the full state.
     switch (action) {
       case 'ping':           return { version: 'demo', hasKey: true, tz: 'local' };
       case 'getState':       return state();
-      case 'addGoal':        addGoal(a); break;
-      case 'setGoalStatus':  setStatus(db.goals, a, ['active', 'completed', 'postponed', 'archived']); break;
+      case 'addGoal':        { const goal = addGoal(a); save(); return { goal }; }
+      case 'setGoalStatus':  setStatus(db.goals, a, ['active', 'completed', 'postponed', 'archived']); save(); return { ok: true };
       case 'addTask': {
         need(db.goals.some(g => g.id === String(a.goalId)), 'That goal does not exist.');
         const title = clip(a.title, 200);
         need(title, 'A task needs a title.');
-        db.tasks.push({ id: nextId(db.tasks), goalId: String(a.goalId), title, status: 'active', created: iso(0) });
-        break;
+        const task = { id: nextId(db.tasks), goalId: String(a.goalId), title, status: 'active', created: iso(0) };
+        db.tasks.push(task);
+        save();
+        return { task: { ...task } };
       }
-      case 'setTaskStatus':  setStatus(db.tasks, a, ['active', 'done', 'removed']); break;
-      case 'logActivity':    logActivity(a); break;
-      case 'submitFeedback': need(clip(a.text, 2000), 'Nothing to send.'); db.feedback.push({ date: iso(0), text: clip(a.text, 2000) }); break;
-      case 'runDaily':       runDaily(); break;
-      case 'runWeekly':      runWeekly(); break;
-      case 'chat': { const reply = chat(a); save(); return { reply, state: state() }; }
+      case 'setTaskStatus':  setStatus(db.tasks, a, ['active', 'done', 'removed']); save(); return { ok: true };
+      case 'logActivity':    logActivity(a); save(); return { streak: streak() };
+      case 'submitFeedback': need(clip(a.text, 2000), 'Nothing to send.'); db.feedback.push({ date: iso(0), text: clip(a.text, 2000) }); save(); return { ok: true };
+      case 'runDaily':       runDaily(); save(); return state();
+      case 'runWeekly':      runWeekly(); save(); return state();
+      case 'chat':           { const reply = chat(a); save(); return { reply, state: state() }; }
       default: { const e = new Error('Unknown action.'); e.code = 'bad_action'; throw e; }
     }
-    save();
-    return state();
   }
 
   const reset = () => { db = seed(); save(); };

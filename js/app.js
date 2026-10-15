@@ -13,6 +13,10 @@ const OPEN_DETAILS = new Set();
 let pending = 0;        // requests in flight
 let aiBusy = false;
 let chatReady = false;
+let needsResync = false; // a full-state answer was skipped because newer local edits are in flight
+let lastLoadAt = 0;
+let tmpCounter = 0;
+const ID_MAP = new Map(); // temporary id -> real id, once the server has answered
 
 // ---- tiny helpers --------------------------------------------
 const $ = id => document.getElementById(id);
@@ -71,47 +75,114 @@ function updateModeUi() { $('demoChip').hidden = !Api.isDemo(); }
 // ---- talking to the backend ----------------------------------
 const isAuthError = e => ['unauthorized', 'not_configured', 'bad_url'].includes(e && e.code);
 
-function request(label, action, args) {
+function request(label, action, args, onResult) {
   pending++;
   setStatus(label + ' …', 'busy');
-  return Api.call(action, args).then(
+  return Api.call(action, args, onResult).then(
     res => { pending--; return { res, latest: pending === 0 }; },
     err => { pending--; throw err; }
   );
 }
 
-function fail(err) {
+/** `what` names the thing being saved, so a failed add can say which one was lost. */
+function fail(err, what) {
   console.error(err);
   if (isAuthError(err)) { setStatus('Not connected', 'err'); openSettings(err.message, 'err'); return; }
-  toast(err.message, 'error');
-  if (pending === 0) { setStatus('Error', 'err'); load(); }   // resync: optimistic changes may not have stuck
+  toast(what ? `Could not save "${what}": ${err.message}` : err.message, 'error');
+  // Resync so an optimistic change that did not stick disappears; wait until the queue is idle.
+  if (pending === 0) { needsResync = false; setStatus('Error', 'err'); load(); }
+  else needsResync = true;
 }
 
 function load() {
-  return request('Loading', 'getState')
-    .then(({ res, latest }) => { if (latest || !STATE) applyState(res); })
+  const label = STATE ? 'Refreshing' : 'Loading';
+  return request(label, 'getState')
+    .then(({ res, latest }) => {
+      if (latest || !STATE) applyState(res);
+      else needsResync = true;   // newer local edits are in flight; fetch again once they settle
+    })
     .catch(err => {
       if (isAuthError(err)) return fail(err);
-      setStatus('Could not load — ' + err.message, 'err');
+      if (STATE) {   // keep showing what we have
+        setStatus('Offline — showing saved data', 'err');
+        $('statusChip').title = err.message;
+      } else {
+        setStatus('Could not load — ' + err.message, 'err');
+      }
     });
 }
 
-function applyState(s) {
+function applyState(s, opts) {
   if (!s || !s.goals) return load();
+  const cached = !!(opts && opts.cached);
   STATE = s;
   if (!chatReady) { initChat(arr(s.chatHistory)); chatReady = true; }
   try { render(); }
   catch (e) { setStatus('Render error: ' + e.message, 'err'); console.error(e); return; }
+  if (cached) return;   // instant paint from the saved copy; the refresh sets the status
+  lastLoadAt = Date.now();
+  $('statusChip').title = '';
   if (arr(s._errors).length) setStatus('Partial error: ' + s._errors.join(' | '), 'err');
   else setStatus('Ready', 'ok');
+  saveCache();
 }
 
-/** Optional instant local change, then the real request. Only the newest response is applied. */
-function mutate(label, optimistic, action, args, after) {
-  if (optimistic && STATE) { optimistic(); render(); }
-  request(label, action, args)
-    .then(({ res, latest }) => { if (after) after(); if (latest) applyState(res); })
-    .catch(fail);
+/** Everything the server answered is now reflected locally; refresh the chrome and fetch again if we skipped a state. */
+function settle() {
+  render();
+  if (pending > 0) return;
+  setStatus('Ready', 'ok');
+  saveCache();
+  if (needsResync) { needsResync = false; load(); }
+}
+
+/**
+ * One change: optional instant local edit, then the real request.
+ * Small changes come back as small answers (a new item, a streak), which `onOk` folds into STATE.
+ * A full state (AI actions, or an older backend) replaces STATE only if it is the newest answer.
+ */
+function fire(label, action, args, opts) {
+  const o = opts || {};
+  if (o.optimistic && STATE) { o.optimistic(); render(); }
+  return request(label, action, args, o.onResult)
+    .then(({ res, latest }) => {
+      if (res && res.goals) {
+        if (o.onOk) o.onOk(res, true);
+        if (latest) applyState(res); else needsResync = true;
+        return;
+      }
+      if (o.onOk) o.onOk(res, false);
+      settle();
+    })
+    .catch(err => { if (o.onFail) o.onFail(err); fail(err, o.what); });
+}
+
+// ---- offline copy of the last dashboard ----------------------
+// Kept in this browser only, so opening the app paints instantly. Removed on Disconnect.
+const CACHE_PREFIX = 'learnerbot.state.v1:';
+function cacheKey() {
+  const c = Api.getConfig();
+  return CACHE_PREFIX + (c.mode === 'demo' ? 'demo' : String(c.url || '').slice(-48));
+}
+const isTmp = id => String(id).startsWith('tmp_');
+function saveCache() {
+  if (!STATE || pending > 0) return;
+  try {
+    const s = { ...STATE,
+      goals: STATE.goals.filter(g => !isTmp(g.id)),
+      historyGoals: STATE.historyGoals.filter(g => !isTmp(g.id)),
+      tasks: STATE.tasks.filter(t => !isTmp(t.id) && !isTmp(t.goalId)) };
+    localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), state: s }));
+  } catch (_) { /* storage full or blocked: the app still works, it just opens a little slower */ }
+}
+function loadCache() {
+  try {
+    const o = JSON.parse(localStorage.getItem(cacheKey()));
+    return o && o.state && Array.isArray(o.state.goals) ? o : null;
+  } catch (_) { return null; }
+}
+function clearCaches() {
+  try { Object.keys(localStorage).filter(k => k.startsWith(CACHE_PREFIX)).forEach(k => localStorage.removeItem(k)); } catch (_) { /* nothing to clear */ }
 }
 
 // ---- optimistic local edits ----------------------------------
@@ -135,8 +206,66 @@ function setTaskLocal(id, status) {
     ? STATE.tasks.filter(t => t.id !== String(id))
     : STATE.tasks.map(t => (t.id === String(id) ? { ...t, status } : t));
 }
-const setGoal = (id, status, label) => mutate(label, () => setGoalLocal(id, status), 'setGoalStatus', { id, status });
-const setTask = (id, status, label) => mutate(label, () => setTaskLocal(id, status), 'setTaskStatus', { id, status });
+// ---- instant adds ---------------------------------------------
+// A new goal or task appears at once under a temporary id (shown dimmed). The request is
+// queued behind earlier ones, and anything that refers to the temporary id (a task on a brand
+// new goal, completing it, a sub-goal) looks the real id up when it is actually sent.
+const resolveId = id => ID_MAP.get(String(id)) || String(id);
+const newTmpId = () => 'tmp_' + (++tmpCounter);
+const parseTags = s => String(s || '').split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
+function todayStr() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function swapGoal(tmp, real) {
+  if (!real || !real.id) return;
+  ID_MAP.set(tmp, String(real.id));
+  const swap = x => (x.id === tmp ? { ...real, status: x.status }            // keep edits made while it was pending
+    : x.parentId === tmp ? { ...x, parentId: String(real.id) } : x);
+  STATE.goals = STATE.goals.map(swap);
+  STATE.historyGoals = STATE.historyGoals.map(swap);
+  STATE.tasks = STATE.tasks.map(t => (t.goalId === tmp ? { ...t, goalId: String(real.id) } : t));
+  ['t:', 's:'].forEach(p => { if (OPEN_DETAILS.delete(p + tmp)) OPEN_DETAILS.add(p + real.id); });
+  if (CHILD_FORMS_OPEN.delete(tmp)) CHILD_FORMS_OPEN.add(String(real.id));
+}
+
+function swapTask(tmp, real) {
+  if (!real || !real.id) return;
+  ID_MAP.set(tmp, String(real.id));
+  STATE.tasks = STATE.tasks.map(t => (t.id === tmp ? { ...real, status: t.status } : t));
+}
+
+function addGoalNow({ title, priority, tags, parentId }) {
+  if (!STATE) return;
+  const tmp = newTmpId();
+  const item = { id: tmp, title: title.slice(0, 200), priority: pri(priority), status: 'active', created: todayStr(),
+    tags: parseTags(tags), parentId: parentId ? String(parentId) : '' };
+  fire('Saving', 'addGoal',
+    () => ({ title, priority: item.priority, tags, parentId: item.parentId ? resolveId(item.parentId) : '' }),
+    { optimistic: () => { STATE.goals = [...STATE.goals, item]; },
+      onResult: res => { if (res && res.goal && res.goal.id) ID_MAP.set(tmp, String(res.goal.id)); },
+      onOk: res => swapGoal(tmp, res && res.goal),
+      what: item.title });
+}
+
+function addTaskNow(goalId, title) {
+  if (!STATE) return;
+  const tmp = newTmpId();
+  const item = { id: tmp, goalId: String(goalId), title: title.slice(0, 200), status: 'active', created: todayStr() };
+  fire('Saving', 'addTask',
+    () => ({ goalId: resolveId(goalId), title }),
+    { optimistic: () => { STATE.tasks = [...STATE.tasks, item]; },
+      onResult: res => { if (res && res.task && res.task.id) ID_MAP.set(tmp, String(res.task.id)); },
+      onOk: res => swapTask(tmp, res && res.task),
+      what: item.title });
+}
+
+const setGoal = (id, status, label) => fire(label, 'setGoalStatus',
+  () => ({ id: resolveId(id), status }), { optimistic: () => setGoalLocal(id, status) });
+const setTask = (id, status, label) => fire(label, 'setTaskStatus',
+  () => ({ id: resolveId(id), status }), { optimistic: () => setTaskLocal(id, status) });
 
 // ---- views ---------------------------------------------------
 function switchView(v) {
@@ -319,7 +448,7 @@ function renderGoalNode(node, tasksMap) {
 
   const taskItems = gTasks.map(t => t.status === 'done'
     ? `<li><span class="task-done">${esc(t.title)}</span><button class="icon ghost" data-act="reopenTask" data-id="${esc(t.id)}" title="Reopen" aria-label="Reopen task">↺</button></li>`
-    : `<li>${esc(t.title)}<span class="actions"><button class="icon ghost" data-act="completeTask" data-id="${esc(t.id)}" title="Done" aria-label="Mark task done">✓</button><button class="icon ghost" data-act="removeTask" data-id="${esc(t.id)}" title="Remove" aria-label="Remove task">✕</button></span></li>`
+    : `<li${isTmp(t.id) ? ' class="pending"' : ''}>${esc(t.title)}<span class="actions"><button class="icon ghost" data-act="completeTask" data-id="${esc(t.id)}" title="Done" aria-label="Mark task done">✓</button><button class="icon ghost" data-act="removeTask" data-id="${esc(t.id)}" title="Remove" aria-label="Remove task">✕</button></span></li>`
   ).join('');
 
   const taskLabel = gTasks.length === 0 ? 'no tasks' : `${activeTasks.length} active${doneTasks.length ? ', ' + doneTasks.length + ' done' : ''}`;
@@ -339,7 +468,7 @@ function renderGoalNode(node, tasksMap) {
     ? `<details class="subgoals" data-key="s:${id}"${open('s:' + node.id)}><summary>${childLabel}</summary><div class="goal-indent"><ul class="plain">${node.children.map(c => renderGoalNode(c, tasksMap)).join('')}</ul></div></details>`
     : '';
 
-  return `<li>
+  return `<li${isTmp(node.id) ? ' class="pending" aria-busy="true"' : ''}>
     <div class="goal-row">
       <span class="goal-left">
         <span class="pill ${pri(node.priority)}">${pri(node.priority)}</span>
@@ -452,7 +581,10 @@ function runAi(kind) {
   aiBusy = true;
   syncAiButtons();
   request('Running ' + kind + ' (10–20 s)', kind === 'weekly' ? 'runWeekly' : 'runDaily')
-    .then(({ res, latest }) => { if (latest) applyState(res); toast(kind === 'weekly' ? 'Weekly review ready.' : 'Daily focus ready.'); })
+    .then(({ res, latest }) => {
+      if (latest) applyState(res); else needsResync = true;   // newer local edits are in flight
+      toast(kind === 'weekly' ? 'Weekly review ready.' : 'Daily focus ready.');
+    })
     .catch(fail)
     .finally(() => { aiBusy = false; syncAiButtons(); });
 }
@@ -471,7 +603,8 @@ const HANDLERS = {
       .then(() => toast('Timings copied.'), () => toast('Could not copy. Select the text instead.', 'error'));
   },
   useDemo:    () => { Api.setConfig({ mode: 'demo' }); resetSession(); $('settings').close(); boot(); },
-  disconnect: () => { Api.setConfig({}); resetSession(); $('settings').close(); showConnect(); },
+  disconnect: () => { Api.setConfig({}); clearCaches(); resetSession(); $('settings').close(); showConnect(); },
+  refresh:    () => { if (Api.isConfigured()) { needsResync = false; load(); } },
   chatToggle: (_, el) => {
     const dock = $('chat');
     dock.classList.toggle('collapsed');
@@ -489,43 +622,64 @@ const HANDLERS = {
   reactivate: d => setGoal(d.id, 'active', 'Reactivating'),
   remove:     d => { if (confirm('Remove this goal?')) setGoal(d.id, 'archived', 'Removing'); },
 
+  // Fields are cleared before the optimistic render, so the re-render does not put the typed text back.
   addGoal: () => {
     const title = val('goalTitle');
     if (!title) return;
-    mutate('Adding goal', null, 'addGoal', { title, priority: val('goalPri'), tags: val('goalTags') },
-      () => clearFields('goalTitle', 'goalTags'));
+    const priority = val('goalPri'), tags = val('goalTags');
+    clearFields('goalTitle', 'goalTags');
+    addGoalNow({ title, priority, tags });
   },
   addChild: d => {
     const title = val('cgt_' + d.id);
     if (!title) return;
+    const priority = val('cgp_' + d.id), tags = val('cgtags_' + d.id);
     CHILD_FORMS_OPEN.delete(d.id);
     OPEN_DETAILS.add('s:' + d.id);
-    mutate('Adding sub-goal', null, 'addGoal', { title, priority: val('cgp_' + d.id), tags: val('cgtags_' + d.id), parentId: d.id });
+    addGoalNow({ title, priority, tags, parentId: d.id });
   },
   acceptGoal: d => {
     const g = arr(STATE && STATE.weeklyReport && STATE.weeklyReport.data && STATE.weeklyReport.data.plan && STATE.weeklyReport.data.plan.goals)[Number(d.idx)];
-    if (g) mutate('Adding goal', null, 'addGoal', { title: g.title, priority: g.priority, tags: '' });
+    if (g) addGoalNow({ title: String(g.title || ''), priority: g.priority, tags: '' });
   },
 
   addTask: d => {
     const title = val('ti_' + d.id);
     if (!title) return;
+    clearFields('ti_' + d.id);
     OPEN_DETAILS.add('t:' + d.id);
-    mutate('Adding task', null, 'addTask', { goalId: d.id, title }, () => clearFields('ti_' + d.id));
+    addTaskNow(d.id, title);
   },
-  completeTask: d => setTask(d.id, 'done', 'Completing task'),
-  reopenTask:   d => setTask(d.id, 'active', 'Reopening task'),
-  removeTask:   d => setTask(d.id, 'removed', 'Removing task'),
+  completeTask: d => setTask(d.id, 'done', 'Saving'),
+  reopenTask:   d => setTask(d.id, 'active', 'Saving'),
+  removeTask:   d => setTask(d.id, 'removed', 'Saving'),
 
   logActivity: () => {
-    const text = val('logText');
+    const text = val('logText'), tags = val('logTags');
     if (!text) return;
-    mutate('Logging', null, 'logActivity', { text, tags: val('logTags') }, () => clearFields('logText', 'logTags'));
+    clearFields('logText', 'logTags');
+    fire('Saving', 'logActivity', { text, tags }, {
+      onOk: res => {
+        if (res && res.streak != null && STATE) { STATE.streak = res.streak; updateStreak(res.streak); }
+        toast('Logged.');
+      },
+      onFail: () => {   // put the text back so nothing typed is lost
+        if ($('logText') && !$('logText').value) $('logText').value = text;
+        if ($('logTags') && !$('logTags').value) $('logTags').value = tags;
+      },
+      what: text.length > 40 ? text.slice(0, 40) + '…' : text
+    });
   },
   sendFeedback: () => {
     const text = val('fbText');
     if (!text) return;
-    mutate('Saving feedback', null, 'submitFeedback', { text }, () => clearFields('fbText'));
+    clearFields('fbText');
+    fire('Saving', 'submitFeedback', { text }, {
+      optimistic: () => { STATE.recentFeedback = [...arr(STATE.recentFeedback), { date: todayStr(), text }].slice(-3); },
+      onOk: () => toast('Feedback saved.'),
+      onFail: () => { if ($('fbText') && !$('fbText').value) $('fbText').value = text; },
+      what: text.length > 40 ? text.slice(0, 40) + '…' : text
+    });
   }
 };
 
@@ -617,7 +771,7 @@ async function saveSettings() {
 function resetSession() {
   STATE = null;
   chatReady = false;
-  pending = 0;
+  needsResync = false;
   $('chatLog').innerHTML = '';
   TAG_FILTER = null;
   CHILD_FORMS_OPEN.clear();
@@ -654,7 +808,7 @@ function sendChat(e) {
   request('Thinking', 'chat', { message: msg })
     .then(({ res, latest }) => {
       thinking.textContent = res.reply || 'Done.';
-      if (latest) applyState(res.state);
+      if (latest) applyState(res.state); else needsResync = true;   // newer local edits are in flight
     })
     .catch(err => {
       thinking.textContent = 'Error: ' + err.message;
@@ -665,8 +819,15 @@ function sendChat(e) {
 // ---- boot ----------------------------------------------------
 function boot() {
   updateModeUi();
-  load();
+  const cached = loadCache();
+  if (cached) applyState(cached.state, { cached: true });   // paint the last dashboard at once...
+  load();                                                   // ...and bring it up to date in the background
 }
+
+// Coming back to the tab after a while: quietly refresh (no timers, only on return).
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && STATE && Api.isConfigured() && pending === 0 && Date.now() - lastLoadAt > 60000) load();
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   $('chatForm').addEventListener('submit', sendChat);

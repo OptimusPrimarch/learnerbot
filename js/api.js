@@ -67,10 +67,18 @@ const Api = (() => {
 
   // Duration of each request (queue wait excluded), newest last, kept for the Settings readout.
   const timings = [];
-  async function timed(action, args) {
+  async function timed(action, args, onResult) {
     const t0 = performance.now();
     let ok = true;
-    try { return await send(action, args); }
+    // `args` may be a function so a queued request can pick up ids that were still
+    // temporary when it was created (resolved at send time, after earlier requests finish).
+    // `onResult` runs before the next queued request is built, so it can record the real id
+    // that request needs; plain promise callbacks would run one step too late.
+    try {
+      const res = await send(action, typeof args === 'function' ? args() : args);
+      if (onResult) onResult(res);
+      return res;
+    }
     catch (e) { ok = false; throw e; }
     finally {
       timings.push({ action, ms: Math.round(performance.now() - t0), ok });
@@ -79,8 +87,8 @@ const Api = (() => {
   }
 
   // One request at a time keeps writes in order, so "apply the latest response" is always right.
-  function call(action, args) {
-    const p = chain.then(() => timed(action, args));
+  function call(action, args, onResult) {
+    const p = chain.then(() => timed(action, args, onResult));
     chain = p.catch(() => {});
     return p;
   }

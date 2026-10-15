@@ -128,6 +128,7 @@ dialog::backdrop{background:rgba(5,7,10,.7)}
 .cfg-msg.err{color:var(--red)}
 .cfg-msg.good{color:var(--green)}
 
+li.pending{opacity:.6}
 details.timings{margin-top:16px;border-top:1px solid var(--border);padding-top:10px;font-size:13px}
 details.timings > summary{cursor:pointer;color:var(--muted);padding:6px 0}
 details.timings #timingsList{margin:6px 0 10px;line-height:1.7}
@@ -168,7 +169,7 @@ body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
   header{gap:12px;margin-bottom:14px}
   .brand,.tabs{width:100%}
   .tabs .nav-btn{flex:1;text-align:center}
-  .tabs .nav-btn[aria-label="Settings"]{flex:0 0 52px}
+  .tabs .nav-btn[aria-label="Settings"],.tabs .nav-btn[aria-label="Refresh"]{flex:0 0 52px}
   .grid{gap:12px}
   .card{padding:14px}
 
