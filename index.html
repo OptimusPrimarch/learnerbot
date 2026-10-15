@@ -68,27 +68,11 @@
       <button type="button" class="ghost" data-act="disconnect">Disconnect</button>
       <button type="button" class="ghost" data-act="closeSettings">Close</button>
     </div>
-    <details class="timings" id="linkBox">
-      <summary>On a phone? Paste a pairing link</summary>
-      <p class="muted" style="margin:6px 0 4px">On your computer open <b>⚙ → Add your phone</b> and copy or email the link, then paste it here. It works once, for ten minutes.</p>
-      <input id="cfgLink" type="text" placeholder="https://…/#pair=…" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="pasteLink" aria-label="Pairing link">
-      <p id="linkMsg" class="cfg-msg" role="status"></p>
-      <div class="row"><button type="button" data-act="pasteLink">Connect with link</button></div>
-    </details>
     <details class="timings" id="phoneBox">
       <summary>Add your phone</summary>
       <p class="muted" id="phoneIntro" style="margin:6px 0 4px"></p>
       <div id="phoneMake">
-        <div class="row"><button type="button" data-act="makePairing">Create a one-time link</button></div>
-        <div id="phoneLinkBox" hidden>
-          <label class="head" for="phoneLink" style="margin-top:12px">Open this on your phone</label>
-          <input id="phoneLink" type="text" readonly data-act="selectField" aria-label="One-time pairing link">
-          <p class="muted" id="phoneExpiry" style="font-size:13px;margin-top:6px"></p>
-          <div class="row">
-            <button type="button" data-act="copyLink">Copy link</button>
-            <button type="button" class="ghost" data-act="emailLink">Email me the link</button>
-          </div>
-        </div>
+        <div class="row"><button type="button" data-act="sendPhoneLink">Email me a connection link</button></div>
       </div>
       <p id="phoneMsg" class="cfg-msg" role="status"></p>
       <div id="phoneDevices">
