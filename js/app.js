@@ -599,6 +599,7 @@ const HANDLERS = {
   settings:   () => openSettings(),
   closeSettings: () => $('settings').close(),
   saveSettings,
+  toggleToken: () => setTokenVisible($('cfgToken').type === 'password'),
   copyTimings: () => {
     const rows = timingSummary();
     const text = rows.length ? rows.map(timingLine).join('\n') : 'no requests yet';
@@ -756,7 +757,8 @@ function openSettings(message, kind) {
   const cfg = Api.getConfig();
   $('cfgUrl').value = cfg.url || '';
   $('cfgToken').value = '';
-  $('cfgToken').placeholder = cfg.token ? 'Saved — leave blank to keep it' : 'Paste the access token';
+  setTokenVisible(false);
+  $('cfgToken').placeholder = cfg.token ? 'Saved for this URL. Leave blank to keep it, or paste a new one' : 'Paste the access token';
   cfgMsg(typeof message === 'string' ? message : '', kind);
   const dlg = $('settings');
   if (!dlg.open) dlg.showModal();
@@ -766,9 +768,19 @@ function openSettings(message, kind) {
 async function saveSettings() {
   const url = $('cfgUrl').value.trim();
   const prev = Api.getConfig();
-  const token = $('cfgToken').value.trim() || (prev.mode === 'demo' ? '' : prev.token) || '';
+  const typed = $('cfgToken').value.trim();
+  // A saved token belongs to the URL it was saved with; never carry it over to a different backend.
+  const sameBackend = prev.mode !== 'demo' && !!prev.url && prev.url === url;
+  const token = typed || (sameBackend ? prev.token : '') || '';
   if (!Api.validateUrl(url)) return cfgMsg('That is not a Google Apps Script web app URL. It should start with https://script.google.com/macros/s/ and end with /exec.', 'err');
-  if (!token) return cfgMsg('Paste the access token from the sheet\'s LearnerBot menu.', 'err');
+  if (!token) {
+    return cfgMsg(prev.url && !sameBackend
+      ? 'This is a different backend from the one saved here, so it needs its own access token. Paste the token from that same sheet\'s LearnerBot → Show connection info window.'
+      : 'Paste the access token from the sheet\'s LearnerBot → Show connection info window.', 'err');
+  }
+  if (typed && !/^[A-Za-z0-9]{32,}$/.test(typed)) {
+    return cfgMsg('That doesn\'t look like an access token. It is one long run of letters and numbers (64 of them), shown as the second box in the sheet\'s window, not the URL. If Copy did nothing, click the token box there and press Ctrl+C.', 'err');
+  }
 
   Api.setConfig({ url, token });
   cfgMsg('Testing the connection…');
@@ -781,8 +793,15 @@ async function saveSettings() {
     boot();
   } catch (e) {
     Api.setConfig(prev);
-    cfgMsg(e.message, 'err');
+    cfgMsg(e.code === 'unauthorized'
+      ? 'That backend answered, but rejected the token. A token only works with its own sheet, so copy the URL and the token from the same sheet\'s LearnerBot → Show connection info window. (Use Show to check what was pasted.)'
+      : e.message, 'err');
   }
+}
+
+function setTokenVisible(show) {
+  $('cfgToken').type = show ? 'text' : 'password';
+  $('tokenToggle').textContent = show ? 'Hide' : 'Show';
 }
 
 function resetSession() {

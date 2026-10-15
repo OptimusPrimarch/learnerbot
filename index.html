@@ -59,7 +59,7 @@
     <p class="muted" style="font-size:14px">Your goals live in your own Google Sheet, and this page talks to it directly. Paste the two values from the sheet's <b>LearnerBot → Show connection info</b> menu. New here? Follow the <a href="setup.html">setup guide</a>.</p>
     <label class="head" for="cfgUrl">Web app URL</label>
     <input id="cfgUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="saveSettings">
-    <label class="head" for="cfgToken">Access token</label>
+    <div class="card-head" style="margin:14px 0 6px"><label class="head" for="cfgToken">Access token</label><button type="button" class="ghost run" id="tokenToggle" data-act="toggleToken">Show</button></div>
     <input id="cfgToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="saveSettings">
     <p id="cfgMsg" class="cfg-msg" role="alert"></p>
     <div class="row">
