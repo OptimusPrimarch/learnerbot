@@ -13,6 +13,7 @@ const OPEN_DETAILS = new Set();
 let pending = 0;        // requests in flight
 let aiBusy = false;
 let chatReady = false;
+let unsaved = 0;         // changes made here that the server has not confirmed yet
 let needsResync = false; // a full-state answer was skipped because newer local edits are in flight
 let lastLoadAt = 0;
 let tmpCounter = 0;
@@ -143,6 +144,7 @@ function settle() {
  */
 function fire(label, action, args, opts) {
   const o = opts || {};
+  unsaved++;
   if (o.optimistic && STATE) { o.optimistic(); render(); }
   return request(label, action, args, o.onResult)
     .then(({ res, latest }) => {
@@ -154,7 +156,8 @@ function fire(label, action, args, opts) {
       if (o.onOk) o.onOk(res, false);
       settle();
     })
-    .catch(err => { if (o.onFail) o.onFail(err); fail(err, o.what); });
+    .catch(err => { if (o.onFail) o.onFail(err); fail(err, o.what); })
+    .finally(() => { unsaved--; });
 }
 
 // ---- offline copy of the last dashboard ----------------------
@@ -598,7 +601,7 @@ const HANDLERS = {
   saveSettings,
   copyTimings: () => {
     const rows = timingSummary();
-    const text = rows.length ? rows.map(r => `${r.action}: median ${r.median} ms, last ${r.last} ms, ${r.count}x`).join('\n') : 'no requests yet';
+    const text = rows.length ? rows.map(timingLine).join('\n') : 'no requests yet';
     (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard')))
       .then(() => toast('Timings copied.'), () => toast('Could not copy. Select the text instead.', 'error'));
   },
@@ -716,21 +719,35 @@ function cfgMsg(text, kind) {
 }
 
 // Median / last duration per action, so real-world speed is visible without dev tools.
+// "total" is what you wait; "server" is how long the script itself ran (the rest is network and Google's
+// hand-off), and the breakdown shows where the script spent it: open (spreadsheet), tab, read, write, lock.
 function timingSummary() {
   const by = {};
-  Api.timings().forEach(r => { (by[r.action] = by[r.action] || []).push(r.ms); });
+  Api.timings().forEach(r => { (by[r.action] = by[r.action] || []).push(r); });
   const median = a => {
     const s = a.slice().sort((x, y) => x - y);
     const m = Math.floor(s.length / 2);
     return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
   };
-  return Object.entries(by).map(([action, ms]) => ({ action, median: median(ms), last: ms[ms.length - 1], count: ms.length }));
+  return Object.entries(by).map(([action, list]) => {
+    const servers = list.filter(r => r.server && typeof r.server.total === 'number').map(r => r.server.total);
+    const last = list[list.length - 1];
+    return { action, median: median(list.map(r => r.ms)), last: last.ms, count: list.length,
+      serverMedian: servers.length ? median(servers) : null, detail: last.server || null };
+  });
+}
+
+function timingLine(r) {
+  const detail = r.detail
+    ? ' (' + Object.entries(r.detail).filter(([k]) => k !== 'total').map(([k, v]) => `${k} ${v}`).join(', ') + ')'
+    : '';
+  return `${r.action}: total median ${r.median} ms, last ${r.last} ms; server median ${r.serverMedian == null ? '–' : r.serverMedian + ' ms'}${detail}; ${r.count}x`;
 }
 
 function renderTimings() {
   const rows = timingSummary();
   $('timingsList').innerHTML = rows.length
-    ? rows.map(r => `<div>${esc(r.action)}: median ${r.median} ms · last ${r.last} ms · ${r.count}×</div>`).join('')
+    ? rows.map(r => `<div>${esc(timingLine(r))}</div>`).join('')
     : 'Nothing yet. Use the app, then look again.';
 }
 
@@ -823,6 +840,11 @@ function boot() {
   if (cached) applyState(cached.state, { cached: true });   // paint the last dashboard at once...
   load();                                                   // ...and bring it up to date in the background
 }
+
+// Closing the page while a save is still in flight can lose that change: ask first.
+window.addEventListener('beforeunload', e => {
+  if (unsaved > 0) { e.preventDefault(); e.returnValue = ''; }
+});
 
 // Coming back to the tab after a while: quietly refresh (no timers, only on return).
 document.addEventListener('visibilitychange', () => {

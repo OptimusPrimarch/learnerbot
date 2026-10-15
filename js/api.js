@@ -31,7 +31,10 @@ const Api = (() => {
   const validateUrl = u => URL_RE.test(String(u || '').trim());
   const timeZone    = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (_) { return ''; } };
 
+  let lastServer = null;   // server-side time breakdown from the most recent answer (requests run one at a time)
+
   async function send(action, args) {
+    lastServer = null;
     if (isDemo()) return Mock.call(action, args || {});
     if (!isConfigured()) throw fail('not_configured', 'Not connected yet. Open ⚙ Settings.');
     if (!validateUrl(cfg.url)) throw fail('bad_url', 'The saved URL is not a Google Apps Script web app URL.');
@@ -61,6 +64,7 @@ const Api = (() => {
     catch (_) {
       throw fail('not_json', 'Your backend did not answer with data. Redeploy it with "Execute as: Me" and "Who has access: Anyone".');
     }
+    lastServer = (body && body.ms && typeof body.ms === 'object') ? body.ms : null;
     if (!body || !body.ok) throw fail((body && body.code) || 'error', (body && body.error) || 'Something went wrong.');
     return body.data;
   }
@@ -81,7 +85,7 @@ const Api = (() => {
     }
     catch (e) { ok = false; throw e; }
     finally {
-      timings.push({ action, ms: Math.round(performance.now() - t0), ok });
+      timings.push({ action, ms: Math.round(performance.now() - t0), ok, server: lastServer });
       if (timings.length > 40) timings.shift();
     }
   }
