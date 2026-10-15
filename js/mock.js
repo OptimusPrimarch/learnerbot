@@ -80,6 +80,7 @@ const Mock = (() => {
       chatHistory: db.chat.slice(-30),
       streak: streak(),
       notify: notifyView(),
+      role: 'master',
       hasKey: true,
       _errors: []
     };

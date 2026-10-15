@@ -33,11 +33,17 @@ const Api = (() => {
 
   let lastServer = null;   // server-side time breakdown from the most recent answer (requests run one at a time)
 
-  async function send(action, args) {
+  // `target` ({url, token}) is for the one call that happens before this device has a saved connection:
+  // redeeming a pairing link. Everything else uses the saved connection.
+  async function send(action, args, target) {
     lastServer = null;
-    if (isDemo()) return Mock.call(action, args || {});
-    if (!isConfigured()) throw fail('not_configured', 'Not connected yet. Open ⚙ Settings.');
-    if (!validateUrl(cfg.url)) throw fail('bad_url', 'The saved URL is not a Google Apps Script web app URL.');
+    if (!target) {
+      if (isDemo()) return Mock.call(action, args || {});
+      if (!isConfigured()) throw fail('not_configured', 'Not connected yet. Open ⚙ Settings.');
+    }
+    const url = target ? target.url : cfg.url;
+    const token = target ? target.token : cfg.token;
+    if (!validateUrl(url)) throw fail('bad_url', 'The saved URL is not a Google Apps Script web app URL.');
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -45,10 +51,10 @@ const Api = (() => {
     try {
       // text/plain keeps this a "simple" request, so the browser skips the CORS preflight
       // that Apps Script cannot answer.
-      res = await fetch(cfg.url, {
+      res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ token: cfg.token, action, args: args || {}, tz: timeZone() }),
+        body: JSON.stringify({ token, action, args: args || {}, tz: timeZone() }),
         signal: ctrl.signal
       });
     } catch (e) {
@@ -97,5 +103,16 @@ const Api = (() => {
     return p;
   }
 
-  return { call, getConfig, setConfig, isDemo, isConfigured, validateUrl, timings: () => timings.slice() };
+  // A call to a given backend with no token, for redeeming a pairing link on a device that has no connection yet.
+  function callPublic(url, action, args) {
+    const p = chain.then(() => send(action, args, { url, token: '' }));
+    chain = p.catch(() => {});
+    return p;
+  }
+
+  // The deployment id inside a backend URL, and back. Pairing links carry the id so a phone needs nothing else.
+  const backendId = u => { const m = /\/s\/([A-Za-z0-9_-]+)\/exec$/.exec(String(u || '')); return m ? m[1] : ''; };
+  const backendUrl = id => 'https://script.google.com/macros/s/' + id + '/exec';
+
+  return { call, callPublic, backendId, backendUrl, getConfig, setConfig, isDemo, isConfigured, validateUrl, timings: () => timings.slice() };
 })();

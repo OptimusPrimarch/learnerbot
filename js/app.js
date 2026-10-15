@@ -327,8 +327,10 @@ function showConnect() {
     <div class="row">
       <button data-act="settings">Connect your sheet</button>
       <button class="ghost" data-act="useDemo">Try demo data</button>
+      <button class="ghost" data-act="openLinkBox">I have a pairing link</button>
       <a class="nav-btn" href="setup.html" style="text-decoration:none;padding:8px 14px">Setup guide</a>
-    </div></div>`;
+    </div>
+    <p class="muted" style="margin-top:14px;font-size:13px">On a phone? On your computer open <b>⚙ → Add your phone</b>, then open the link it gives you here.</p></div>`;
   setStatus('Not connected', '');
   updateModeUi();
   updateStreak(0);
@@ -602,6 +604,15 @@ const HANDLERS = {
   toggleToken: () => setTokenVisible($('cfgToken').type === 'password'),
   saveNotify,
   testEmail,
+  makePairing,
+  copyLink,
+  emailLink,
+  loadDevices,
+  revokeDevice: d => { if (confirm('Disconnect this phone? It stops working immediately.')) revokeDevice(d.id); },
+  revokeAll: () => { if (confirm('Disconnect every phone? They all stop working immediately.')) revokeAll(); },
+  pasteLink,
+  selectField: (_, el) => el.select(),
+  openLinkBox: () => { openSettings(); $('linkBox').open = true; },
   copyTimings: () => {
     const rows = timingSummary();
     const text = rows.length ? rows.map(timingLine).join('\n') : 'no requests yet';
@@ -827,8 +838,159 @@ function testEmail() {
   });
 }
 
+// ---- phone pairing -------------------------------------------
+// Computer: create a one-time link. Phone: open it (or paste it) and the one-time code is traded for that
+// phone's own device token, so the main token never leaves the computer.
+const PAIR_RE = /pair=(AKfycb[A-Za-z0-9_-]{40,200})\.([0-9a-f]{20,64})/;
+const parsePairing = text => { const m = PAIR_RE.exec(String(text || '')); return m ? { id: m[1], code: m[2] } : null; };
+
+function deviceName() {
+  const ua = navigator.userAgent || '';
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Device';
+  const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /(Chrome|CriOS)\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'browser';
+  return os + ', ' + br;
+}
+
+function paneMsg(id, text, kind) {
+  const p = $(id);
+  p.textContent = text || '';
+  p.className = 'cfg-msg' + (kind ? ' ' + kind : '');
+}
+const phoneMsg = (t, k) => paneMsg('phoneMsg', t, k);
+const linkMsg = (t, k) => paneMsg('linkMsg', t, k);
+
+const phoneUsable = () => Api.isConfigured() && !Api.isDemo();
+const isMaster = () => !(STATE && STATE.role === 'device');
+
+function renderPhoneBox() {
+  const live = phoneUsable(), master = isMaster();
+  $('phoneIntro').textContent = !live
+    ? (Api.isDemo() ? 'Pairing needs a real connection, so it is not available in demo mode.' : 'Connect this computer first, then you can add your phone.')
+    : !master
+      ? 'This device is connected as a phone. Create links and manage phones from your computer.'
+      : 'Make a one-time link, open it on your phone, and the phone connects itself. It works once and expires in ten minutes. Each phone gets its own access, which you can cut off here.';
+  $('phoneMake').hidden = !(live && master);
+  $('phoneDevices').hidden = !(live && master);
+  $('phoneLinkBox').hidden = true;
+  $('phoneLink').value = '';
+  $('phoneBox').open = false;   // reopening it reloads the phone list
+  phoneMsg('');
+  renderDevices(null);
+}
+
+function renderDevices(list) {
+  const box = $('deviceList');
+  $('revokeAllBtn').hidden = !(list && list.length);
+  if (!list) { box.textContent = 'Open this section to load the list.'; return; }
+  if (!list.length) { box.textContent = 'No phones connected yet.'; return; }
+  box.innerHTML = list.map(d => `<div class="device-row"><div>
+      <div class="device-name">${esc(d.name)}</div>
+      <div class="device-meta">added ${esc(fmtDate(d.created))} · ${d.used ? 'last used ' + esc(fmtDate(d.used)) : 'not used yet'}</div></div>
+      <button type="button" class="ghost run" data-act="revokeDevice" data-id="${esc(d.id)}" aria-label="Disconnect ${esc(d.name)}">Disconnect</button></div>`).join('');
+}
+
+/** Pairing calls go through the same queue and status chip as everything else. */
+function phoneRequest(label, action, args, onDone) {
+  if (!phoneUsable()) return phoneMsg('Connect first.', 'err');
+  phoneMsg(label + '…');
+  request(label, action, args)
+    .then(({ res }) => { onDone(res); if (pending === 0) setStatus('Ready', 'ok'); })
+    .catch(err => {
+      phoneMsg(err.code === 'forbidden' ? 'Only your computer can do that.' : err.message, 'err');
+      if (isAuthError(err)) fail(err); else if (pending === 0) setStatus('Ready', 'ok');
+    });
+}
+
+function loadDevices() {
+  phoneRequest('Loading the list', 'listDevices', {}, res => { renderDevices(res.devices); phoneMsg(''); });
+}
+
+function makePairing() {
+  phoneRequest('Creating a link', 'createPairing', {}, res => {
+    const base = location.href.split('#')[0].split('?')[0].replace(/index\.html$/, '');
+    $('phoneLink').value = base + '#pair=' + Api.backendId(Api.getConfig().url) + '.' + res.code;
+    const until = new Date(Date.now() + (res.expiresInSeconds || 600) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    $('phoneExpiry').textContent = `Works once, until about ${until}. Whoever opens it before then connects, so don't post it anywhere.`;
+    $('phoneLinkBox').hidden = false;
+    phoneMsg('Link ready. Open it on your phone.', 'good');
+  });
+}
+
+function copyLink() {
+  const v = $('phoneLink').value;
+  if (!v) return;
+  (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject(new Error('no clipboard')))
+    .then(() => phoneMsg('Link copied. Send it to your phone, then open it there.', 'good'),
+      () => { $('phoneLink').select(); phoneMsg('Could not copy automatically. The link is selected: press Ctrl+C.', 'err'); });
+}
+
+function emailLink() {
+  const link = $('phoneLink').value;
+  if (!link) return phoneMsg('Create a link first.', 'err');
+  phoneRequest('Sending', 'emailPairingLink', { link }, res => phoneMsg(`Sent to ${res.to}. Open it on your phone within ten minutes.`, 'good'));
+}
+
+function revokeDevice(id) {
+  phoneRequest('Disconnecting', 'revokeDevice', { id }, res => { renderDevices(res.devices); phoneMsg('Phone disconnected.', 'good'); });
+}
+
+function revokeAll() {
+  phoneRequest('Disconnecting', 'revokeAllDevices', {}, res => { renderDevices(res.devices); phoneMsg('All phones disconnected.', 'good'); });
+}
+
+/** Phone side: replacing an existing connection must be a choice, never a surprise. */
+function confirmReplace(p) {
+  const cfg = Api.getConfig();
+  if (!Api.isConfigured() || Api.isDemo() || !cfg.url) return true;
+  return confirm(Api.backendId(cfg.url) === p.id
+    ? 'This device is already connected to this LearnerBot. Use pairing links only on a phone: continuing swaps this device\'s full access for phone-level access (it could no longer add other phones). Continue?'
+    : 'This link connects to a different LearnerBot than the one saved on this device. Replace the saved connection?');
+}
+
+async function redeemLink(p) {
+  setStatus('Connecting this phone …', 'busy');
+  const url = Api.backendUrl(p.id);
+  try {
+    const res = await Api.callPublic(url, 'redeemPairing', { code: p.code, name: deviceName() });
+    Api.setConfig({ url, token: res.token });
+    resetSession();
+    if ($('settings').open) $('settings').close();
+    toast('This phone is connected.');
+    boot();
+    return true;
+  } catch (e) {
+    const known = ['bad_code', 'rate_limited', 'too_many_devices', 'not_configured'].includes(e.code);
+    const text = known ? e.message : 'Could not connect with that link: ' + e.message;
+    toast(text, 'error');
+    linkMsg(text, 'err');
+    if (Api.isConfigured() && !STATE) boot();           // we paused the normal start for this; resume it
+    else setStatus(Api.isConfigured() ? 'Ready' : 'Not connected', Api.isConfigured() ? 'ok' : '');
+    return false;
+  }
+}
+
+async function pasteLink() {
+  const p = parsePairing($('cfgLink').value);
+  if (!p) return linkMsg('That does not look like a pairing link. It ends in #pair=… and comes from ⚙ → Add your phone on your computer.', 'err');
+  if (!confirmReplace(p)) return linkMsg('Nothing changed.');
+  linkMsg('Connecting…');
+  if (await redeemLink(p)) $('cfgLink').value = '';
+}
+
+/** A pairing link opened on this device: take the code out of the address bar at once, then use it. */
+function startFromLink() {
+  const p = parsePairing(location.hash);
+  if (!p) return false;
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (_) { /* address bar stays as is */ }
+  if (!confirmReplace(p)) return false;                 // keep the saved connection; the normal start continues
+  if (!Api.isConfigured()) showConnect();
+  redeemLink(p);
+  return true;
+}
+
 function openSettings(message, kind) {
   renderNotifyForm();
+  renderPhoneBox();
   renderTimings();
   const cfg = Api.getConfig();
   $('cfgUrl').value = cfg.url || '';
@@ -957,6 +1119,7 @@ document.addEventListener('visibilitychange', () => {
 
 document.addEventListener('DOMContentLoaded', () => {
   $('chatForm').addEventListener('submit', sendChat);
+  $('phoneBox').addEventListener('toggle', () => { if ($('phoneBox').open && phoneUsable() && isMaster()) loadDevices(); });
   switchView('dash');
-  if (Api.isConfigured()) boot(); else showConnect();
+  if (!startFromLink()) { if (Api.isConfigured()) boot(); else showConnect(); }
 });
