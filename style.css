@@ -128,6 +128,10 @@ dialog::backdrop{background:rgba(5,7,10,.7)}
 .cfg-msg.err{color:var(--red)}
 .cfg-msg.good{color:var(--green)}
 
+details.timings{margin-top:16px;border-top:1px solid var(--border);padding-top:10px;font-size:13px}
+details.timings > summary{cursor:pointer;color:var(--muted);padding:6px 0}
+details.timings #timingsList{margin:6px 0 10px;line-height:1.7}
+
 /* toast */
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:10px;max-width:min(560px,calc(100vw - 32px));font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:200}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}

@@ -464,6 +464,12 @@ const HANDLERS = {
   settings:   () => openSettings(),
   closeSettings: () => $('settings').close(),
   saveSettings,
+  copyTimings: () => {
+    const rows = timingSummary();
+    const text = rows.length ? rows.map(r => `${r.action}: median ${r.median} ms, last ${r.last} ms, ${r.count}x`).join('\n') : 'no requests yet';
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard')))
+      .then(() => toast('Timings copied.'), () => toast('Could not copy. Select the text instead.', 'error'));
+  },
   useDemo:    () => { Api.setConfig({ mode: 'demo' }); resetSession(); $('settings').close(); boot(); },
   disconnect: () => { Api.setConfig({}); resetSession(); $('settings').close(); showConnect(); },
   chatToggle: (_, el) => {
@@ -555,7 +561,27 @@ function cfgMsg(text, kind) {
   p.className = 'cfg-msg' + (kind ? ' ' + kind : '');
 }
 
+// Median / last duration per action, so real-world speed is visible without dev tools.
+function timingSummary() {
+  const by = {};
+  Api.timings().forEach(r => { (by[r.action] = by[r.action] || []).push(r.ms); });
+  const median = a => {
+    const s = a.slice().sort((x, y) => x - y);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+  };
+  return Object.entries(by).map(([action, ms]) => ({ action, median: median(ms), last: ms[ms.length - 1], count: ms.length }));
+}
+
+function renderTimings() {
+  const rows = timingSummary();
+  $('timingsList').innerHTML = rows.length
+    ? rows.map(r => `<div>${esc(r.action)}: median ${r.median} ms · last ${r.last} ms · ${r.count}×</div>`).join('')
+    : 'Nothing yet. Use the app, then look again.';
+}
+
 function openSettings(message, kind) {
+  renderTimings();
   const cfg = Api.getConfig();
   $('cfgUrl').value = cfg.url || '';
   $('cfgToken').value = '';
