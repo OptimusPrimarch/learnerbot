@@ -1,4 +1,4 @@
-// LearnerBot app payload 2026.10.10
+// LearnerBot app payload 2026.10.11
 // ============================================================
 // Agents.js
 // ============================================================
@@ -408,15 +408,15 @@ function _ensureHeaders() {
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.1';
-const APP_VERSION = '2026.10.10';
+const APP_RELEASE = '1.2';
+const APP_VERSION = '2026.10.11';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800 };
 
 // How the site looks is saved in the sheet so every device matches. Only these names are accepted; the site
 // keeps the same lists in js/look.js (a test fails if they drift apart).
-const APPEARANCE_THEMES = ['dark', 'light', 'contrast'];
+const APPEARANCE_THEMES = ['dark', 'light', 'contrast', 'custom'];
 const APPEARANCE_FONTS = ['system', 'humanist', 'serif', 'wide', 'mono', 'rounded'];
 
 // ---- Script properties & settings ---------------------------
@@ -1473,7 +1473,7 @@ function setSetting(key, value, max) {
   });
 }
 
-/** The saved look ({theme, accent, font}), or null when none has been saved or the saved text is not usable. */
+/** The saved look ({theme, primary, accent, font}), or null when none has been saved or the saved text is not usable. */
 function getAppearance() {
   const raw = getSetting('appearance');
   if (!raw) return null;
@@ -1482,7 +1482,8 @@ function getAppearance() {
 
 /**
  * Checks a look and returns it in canonical form; throws on anything unknown. A missing theme or font means
- * the default, and a blank accent means "the theme's own accent". An accent is a #rrggbb colour.
+ * the default, and a blank accent means "the theme's own accent". `primary` is the page colour of the Custom
+ * theme and `accent` the colour of buttons and highlights; each is blank or a #rrggbb colour.
  */
 function _cleanAppearance(a) {
   if (!a || typeof a !== 'object' || Array.isArray(a)) throw _err('bad_request', 'That look is not valid.');
@@ -1490,12 +1491,12 @@ function _cleanAppearance(a) {
   const font = a.font == null || a.font === '' ? 'system' : a.font;
   if (typeof theme !== 'string' || APPEARANCE_THEMES.indexOf(theme) < 0) throw _err('bad_request', 'Unknown theme.');
   if (typeof font !== 'string' || APPEARANCE_FONTS.indexOf(font) < 0) throw _err('bad_request', 'Unknown font.');
-  let accent = '';
-  if (a.accent != null && a.accent !== '') {
-    if (typeof a.accent !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(a.accent)) throw _err('bad_request', 'The accent color must look like #6ea8fe.');
-    accent = a.accent.toLowerCase();
-  }
-  return { theme: theme, accent: accent, font: font };
+  const colour = (v, what) => {
+    if (v == null || v === '') return '';
+    if (typeof v !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(v)) throw _err('bad_request', 'The ' + what + ' color must look like #6ea8fe.');
+    return v.toLowerCase();
+  };
+  return { theme: theme, primary: colour(a.primary, 'primary'), accent: colour(a.accent, 'accent'), font: font };
 }
 
 function setAppearance(a) {

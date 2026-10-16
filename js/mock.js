@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.10.10';
-  const RELEASE = '1.1';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.10.11';
+  const RELEASE = '1.2';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -236,8 +236,10 @@ const Mock = (() => {
         const t = a.theme == null || a.theme === '' ? 'dark' : a.theme, f = a.font == null || a.font === '' ? 'system' : a.font;
         need(typeof t === 'string' && Object.prototype.hasOwnProperty.call(Look.THEMES, t), 'Unknown theme.');
         need(typeof f === 'string' && Object.prototype.hasOwnProperty.call(Look.FONTS, f), 'Unknown font.');
-        need(a.accent == null || a.accent === '' || (typeof a.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(a.accent)), 'The accent color must look like #6ea8fe.');
-        db.appearance = { theme: t, accent: a.accent ? a.accent.toLowerCase() : '', font: f };
+        const hex = v => v == null || v === '' || (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v));
+        need(hex(a.primary), 'The primary color must look like #6ea8fe.');
+        need(hex(a.accent), 'The accent color must look like #6ea8fe.');
+        db.appearance = { theme: t, primary: a.primary ? a.primary.toLowerCase() : '', accent: a.accent ? a.accent.toLowerCase() : '', font: f };
         save();
         return { appearance: db.appearance };
       }

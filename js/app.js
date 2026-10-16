@@ -28,9 +28,10 @@ let updateError = '';            // why the last update attempt failed, shown in
 // The backend version this copy of the site was written for. A sheet script older than this keeps working for
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
-const EXPECTED_BACKEND = '2026.10.10';
-const EXPECTED_RELEASE = '1.1';   // the name people see for that build (backend/Code.js APP_RELEASE)
+const EXPECTED_BACKEND = '2026.10.11';
+const EXPECTED_RELEASE = '1.2';   // the name people see for that build (backend/Code.js APP_RELEASE)
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
+const CUSTOM_LOOK_BUILD = '2026.10.11';   // the first script build that can save the Custom theme
 const VERSION_KEY = 'learnerbot.backendVersion';
 
 // ---- tiny helpers --------------------------------------------
@@ -509,6 +510,7 @@ function renderDash() {
 
 function showConnect() {
   $('mainGrid').innerHTML = `<div class="card wide connect">
+    <img class="logo-lg" src="logo-128.png" width="88" height="88" alt="">
     <h3>Welcome to LearnerBot</h3>
     <p class="muted">Set goals, log what you did, and get a coach that notices patterns.<br>Your data stays in your own Google Sheet.</p>
     <div class="row">
@@ -828,7 +830,9 @@ const HANDLERS = {
   lookTheme:  d => setLook({ theme: d.v }),
   lookAccent: d => setLook({ accent: d.v }),
   lookSize:   d => setLook({ size: d.v }),
-  lookReset:  () => setLook({ theme: 'dark', accent: '', font: 'system', size: 'medium' }),
+  lookPrimary: d => setLook({ theme: 'custom', primary: d.v }),
+  lookScheme: d => { const x = Look.SCHEMES[Number(d.v)]; if (x) setLook({ theme: 'custom', primary: x.primary, accent: x.accent }); },
+  lookReset:  () => setLook({ theme: 'dark', primary: '', accent: '', font: 'system', size: 'medium' }),
   voicePreset: d => { if (VOICE_PRESETS[d.preset]) { $('voiceText').value = VOICE_PRESETS[d.preset]; updateVoiceCount(); voiceMsg('Filled in. Edit it if you like, then press Save voice.'); } },
   saveVoice:   () => saveVoice($('voiceText').value),
   clearVoice:  () => { $('voiceText').value = ''; saveVoice(''); },
@@ -1096,6 +1100,9 @@ const lookKnown = () => !!STATE && 'appearance' in STATE;   // a script that pre
 function buildLookForm() {
   const pill = (act, v, label) => `<button type="button" class="ghost run" data-act="${act}" data-v="${esc(v)}" aria-pressed="false">${esc(label)}</button>`;
   $('lookTheme').innerHTML = Object.keys(Look.THEMES).map(k => pill('lookTheme', k, Look.THEMES[k].label)).join('');
+  $('lookScheme').innerHTML = Look.SCHEMES.map((x, i) => `<button type="button" class="ghost run scheme" data-act="lookScheme" data-v="${i}" aria-pressed="false"><span class="dots"><i style="background:${x.primary}"></i><i style="background:${x.accent}"></i></span>${esc(x.label)}</button>`).join('');
+  const psw = (v, label) => `<button type="button" class="swatch" data-act="lookPrimary" data-v="${esc(v)}" style="--sw:${esc(v)}" aria-label="${esc(label)}" title="${esc(label)}" aria-pressed="false"></button>`;
+  $('lookPrimary').innerHTML = Look.PRIMARIES.map(p => psw(p.color, p.label)).join('') + '<input type="color" id="lookPrimaryCustom" aria-label="Custom primary color" title="Pick any color">';
   $('lookSize').innerHTML = Object.keys(Look.SIZES).map(k => pill('lookSize', k, Look.SIZES[k].label)).join('');
   $('lookFont').innerHTML = Object.keys(Look.FONTS).map(k => `<option value="${k}" style="font-family:${esc(Look.FONTS[k].stack)}">${esc(Look.FONTS[k].label)}</option>`).join('');
   const sw = (v, label, auto) => `<button type="button" class="swatch${auto ? ' auto' : ''}" data-act="lookAccent" data-v="${esc(v)}" aria-label="${esc(label)}" title="${esc(label)}" aria-pressed="false"></button>`;
@@ -1105,23 +1112,31 @@ function buildLookForm() {
 
 /** Shows which choices are active, and the swatches in the colors they will really have on this theme. */
 function syncLookForm() {
-  const look = Look.get();
+  const look = Look.get(), pal = Look.palette(look), custom = look.theme === 'custom';
   document.querySelectorAll('#lookTheme button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === look.theme)));
   document.querySelectorAll('#lookSize button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === look.size)));
+  document.querySelectorAll('#lookScheme button').forEach(b => {
+    const x = Look.SCHEMES[Number(b.dataset.v)];
+    b.setAttribute('aria-pressed', String(custom && look.primary === x.primary && look.accent === x.accent));
+  });
+  $('lookPrimaryGroup').hidden = !custom;
+  document.querySelectorAll('#lookPrimary .swatch').forEach(b => b.setAttribute('aria-pressed', String(look.primary === b.dataset.v)));
+  $('lookAccentLabel').textContent = custom ? 'Secondary color (buttons and highlights)' : 'Accent color';
   document.querySelectorAll('#lookAccent .swatch').forEach(b => {
     b.setAttribute('aria-pressed', String(b.dataset.v === look.accent));
-    if (b.dataset.v) b.style.setProperty('--sw', Look.fitAccent(b.dataset.v, look.theme).color);
+    if (b.dataset.v) b.style.setProperty('--sw', Look.fitAccent(b.dataset.v, pal).color);
   });
   $('lookFont').value = look.font;
-  const custom = $('lookCustom');
-  if (custom && document.activeElement !== custom) custom.value = Look.fitAccent(look.accent || Look.THEMES[look.theme].accent, look.theme).color;
+  const accentIn = $('lookCustom'), primaryIn = $('lookPrimaryCustom');
+  if (accentIn && document.activeElement !== accentIn) accentIn.value = Look.fitAccent(look.accent || pal.accent, pal).color;
+  if (primaryIn && document.activeElement !== primaryIn) primaryIn.value = look.primary || Look.DEFAULT_PRIMARY;
 }
 
 function setLook(part) {
   const before = Look.get();
   const next = Look.set(part);
   syncLookForm();
-  const synced = ['theme', 'accent', 'font'].some(k => before[k] !== next[k]);
+  const synced = Look.SYNCED.some(k => before[k] !== next[k]);
   if (!synced) { lookMsg('Text size is kept on this device.'); return; }
   lookMsg(Api.isConfigured() ? 'Saving…' : 'Saved on this device.');
   clearTimeout(lookTimer);
@@ -1133,6 +1148,10 @@ function pushLook(force) {
   const look = Look.get();
   if (!look.dirty && !force) return;
   if (!Api.isConfigured()) { lookMsg('Saved on this device.', 'good'); return; }
+  if (look.theme === 'custom' && STATE && !Api.isDemo() && cmpVer(STATE.version, CUSTOM_LOOK_BUILD) < 0) {
+    lookMsg('Saved on this device. Update your sheet\'s script to keep custom colors with your sheet.', 'err');
+    return;
+  }
   const sent = Look.payload(look);
   request('Saving', 'saveAppearance', sent)
     .then(({ res }) => {
@@ -1539,6 +1558,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncLookForm();
   $('lookFont').addEventListener('change', e => setLook({ font: e.target.value }));
   $('lookAccent').addEventListener('input', e => { if (e.target.id === 'lookCustom') setLook({ accent: e.target.value }); });
+  $('lookPrimary').addEventListener('input', e => { if (e.target.id === 'lookPrimaryCustom') setLook({ theme: 'custom', primary: e.target.value }); });
   $('phoneBox').addEventListener('toggle', () => { if ($('phoneBox').open && phoneUsable() && isMaster()) loadDevices(); });
   switchView('dash');
   if (!startFromLink()) { if (Api.isConfigured()) boot(); else showConnect(); }

@@ -1,8 +1,24 @@
 # Changelog
 
 Each release has a **name** people see (1.0, 1.1, ...) and a **build id** the update check compares
-(2026.10.10). The build id only ever goes up. The site and the sheet's script both report them, and
-Settings shows "LearnerBot 1.1, build 2026.10.10".
+(2026.10.11). The build id only ever goes up. The site and the sheet's script both report them, and
+Settings shows "LearnerBot 1.2, build 2026.10.11".
+
+## 1.2 · build 2026.10.11 · 2026-10-16
+
+**A Custom theme**
+- Settings > Look > Custom: pick a **primary** color (the page background) and a **secondary** color (buttons and highlights)
+  and the cards, borders, text and status colors are worked out from them. Text always stays readable: a color that would
+  make it hard to read is nudged just far enough
+- Six ready-made color schemes: LearnerBot (navy and gold, from the new icon), Forest, Plum, Ocean, Sand and Cloud
+- The primary color is saved in your sheet with the rest of your look; text size is still per device
+
+**A new look for LearnerBot itself**
+- New icon (a little robot wearing an open book) for the browser tab, the Android and iPhone home screens, the app header,
+  the welcome card, link previews and the setup guide's cover
+
+**Needs the script update:** yes, to save the Custom theme in your sheet (the icon alone is site only). Press **Update now**.
+Until then, a Custom look is kept on that device.
 
 ## 1.1 · build 2026.10.10 · 2026-10-15
 

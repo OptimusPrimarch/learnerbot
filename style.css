@@ -15,6 +15,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:ca
 .wrap{max-width:1040px;margin:0 auto;padding:20px 16px}
 header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:20px}
 h1{font-size:calc(20px*var(--fs));letter-spacing:.2px}.dot{color:var(--accent)}
+.logo{vertical-align:-7px;margin-right:4px;border-radius:8px}
+.logo-lg{display:block;margin:0 auto 12px;border-radius:20px}
 .chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .chip{font-size:calc(12px*var(--fs));padding:4px 10px;border-radius:999px;background:var(--panel2);border:1px solid var(--border);color:var(--muted);cursor:default}
 .chip.ok{color:var(--green);border-color:var(--ok-line)}
@@ -269,4 +271,8 @@ body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
 .swatch.auto{background:conic-gradient(var(--accent),var(--green),var(--warn),var(--red),var(--accent))}
 .swatches input[type="color"]{width:44px;height:32px;padding:0;border-radius:8px;cursor:pointer}
 #lookFont{max-width:100%}
+.scheme{display:inline-flex;align-items:center;gap:8px}
+.dots{display:inline-flex}
+.dots i{width:14px;height:14px;border-radius:50%;border:1px solid var(--border);display:inline-block}
+.dots i + i{margin-left:-5px}
 @media(max-width:680px),(pointer:coarse){.swatch{width:40px;height:40px}.swatches input[type="color"]{width:52px;height:40px}}

@@ -10,8 +10,16 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="LearnerBot">
+<meta property="og:type" content="website">
+<meta property="og:title" content="LearnerBot">
+<meta property="og:description" content="Set goals, log what you did, and let an AI coach keep you on track. Your data stays in your own Google Sheet.">
+<meta property="og:image" content="https://optimusprimarch.github.io/learnerbot/icon-512.png">
+<meta name="twitter:card" content="summary">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon-192.png">
+<link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>LearnerBot</title>
 <script src="js/look.js"></script>
@@ -21,7 +29,7 @@
 <div class="wrap">
   <header>
     <div class="brand">
-      <h1><span class="dot">●</span> LearnerBot</h1>
+      <h1><img class="logo" src="logo-128.png" width="30" height="30" alt=""> LearnerBot</h1>
       <div class="chips">
         <span class="chip" id="statusChip" role="status">Starting…</span>
         <span class="chip demo" id="demoChip" hidden>Demo data</span>
@@ -98,6 +106,8 @@
       <summary>Look</summary>
       <p class="muted" id="lookIntro" style="margin:6px 0 4px">Theme, accent color and font are saved in your sheet, so every device you connect looks the same. Text size stays on this device.</p>
       <div class="look-group"><label class="head" id="lookThemeLabel">Theme</label><div class="seg" id="lookTheme" role="group" aria-labelledby="lookThemeLabel"></div></div>
+      <div class="look-group"><label class="head" id="lookSchemeLabel">Ready-made color schemes</label><div class="seg" id="lookScheme" role="group" aria-labelledby="lookSchemeLabel"></div></div>
+      <div class="look-group" id="lookPrimaryGroup" hidden><label class="head" id="lookPrimaryLabel">Primary color (background)</label><div class="swatches" id="lookPrimary" role="group" aria-labelledby="lookPrimaryLabel"></div></div>
       <div class="look-group"><label class="head" id="lookAccentLabel">Accent color</label><div class="swatches" id="lookAccent" role="group" aria-labelledby="lookAccentLabel"></div></div>
       <div class="look-group"><label class="head" for="lookFont">Font</label><select id="lookFont"></select></div>
       <div class="look-group"><label class="head" id="lookSizeLabel">Text size (this device)</label><div class="seg" id="lookSize" role="group" aria-labelledby="lookSizeLabel"></div></div>
