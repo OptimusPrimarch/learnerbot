@@ -205,6 +205,11 @@ a.btn.ghost-link:hover{color:var(--text);border-color:var(--accent);filter:none}
 .presets{display:flex;flex-wrap:wrap;gap:6px}
 .vlabel{display:block;font-size:calc(11px*var(--fs));text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:10px 0 4px}
 .voice-foot{display:flex;justify-content:flex-end;font-size:calc(12px*var(--fs));margin-top:4px}
+.voice-save{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.voice-save input{flex:1 1 180px;width:auto;min-width:0}
+.myv{display:inline-flex}
+.myv > button:first-child{border-top-right-radius:0;border-bottom-right-radius:0}
+.myv > button + button{border-top-left-radius:0;border-bottom-left-radius:0;border-left:0}
 #voiceText{min-height:96px}
 body.legacy .needs-new{display:none!important}
 

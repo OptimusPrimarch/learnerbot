@@ -26,8 +26,8 @@ let updateError = '';            // why the last update attempt failed, shown in
 // The backend version this copy of the site was written for. A sheet script older than this keeps working for
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
-const EXPECTED_BACKEND = '2026.10.13';
-const SITE_RELEASE = '1.6';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
+const EXPECTED_BACKEND = '2026.10.14';
+const SITE_RELEASE = '1.7';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const CUSTOM_LOOK_BUILD = '2026.10.11';   // the first script build that can save the Custom theme
 const VERSION_KEY = 'learnerbot.backendVersion';
@@ -1035,6 +1035,15 @@ const HANDLERS = {
   lookPrimary: d => setLook({ theme: 'custom', primary: d.v }),
   lookScheme: d => { const x = Look.SCHEMES[Number(d.v)]; if (x) setLook({ theme: 'custom', primary: x.primary, accent: x.accent }); },
   lookReset:  () => setLook({ theme: 'dark', primary: '', accent: '', font: 'system', size: 'medium' }),
+  myVoice: d => {
+    const v = arr(STATE && STATE.myVoices).find(x => x.id === d.id);
+    if (v) { $('voiceText').value = v.text; $('voiceName').value = v.name; updateVoiceCount(); voiceMsg('Filled in. Edit it if you like, then press Save voice to use it.'); }
+  },
+  saveMyVoice: () => saveMyVoice(),
+  removeMyVoice: d => {
+    const v = arr(STATE && STATE.myVoices).find(x => x.id === d.id);
+    if (v && confirm('Remove “' + v.name + '” from your saved voices? Your coach keeps using the voice it has now.')) removeMyVoice(v.id);
+  },
   voicePreset: d => { const v = Voices.byId[d.preset]; if (v) { $('voiceText').value = v.text; updateVoiceCount(); voiceMsg('Filled in. Edit it if you like, then press Save voice.'); } },
   saveVoice:   () => saveVoice($('voiceText').value),
   clearVoice:  () => { $('voiceText').value = ''; saveVoice(''); },
@@ -1403,6 +1412,14 @@ function buildVoiceForm() {
 }
 const voiceMsg = (t, k) => paneMsg('voiceMsg', t, k);
 
+/** The voices the person kept (saved in the sheet): a button that loads each into the box, and a small one that removes it. */
+function renderMyVoices() {
+  const list = arr(STATE && STATE.myVoices);
+  $('myVoices').innerHTML = '<span class="vlabel">My voices</span>' + (list.length
+    ? `<div class="presets">${list.map(v => `<span class="myv"><button type="button" class="ghost run" data-act="myVoice" data-id="${esc(v.id)}" title="${esc(snippet(v.text, 140))}">${esc(v.name)}</button><button type="button" class="ghost icon" data-act="removeMyVoice" data-id="${esc(v.id)}" aria-label="Remove ${esc(v.name)}" title="Remove">✕</button></span>`).join('')}</div>`
+    : '<p class="muted" style="font-size:12px">Nothing kept yet. Write a voice below, name it and press Save to my voices.</p>');
+}
+
 function updateVoiceCount() {
   const n = $('voiceText').value.length;
   $('voiceCount').textContent = n + ' / ' + VOICE_MAX;
@@ -1411,6 +1428,8 @@ function updateVoiceCount() {
 function renderVoiceForm() {
   $('voiceText').value = (STATE && STATE.coachVoice) || '';
   $('voiceText').maxLength = VOICE_MAX;
+  $('voiceName').value = '';
+  renderMyVoices();
   updateVoiceCount();
   voiceMsg('');
   $('voiceIntro').textContent = !Api.isConfigured()
@@ -1431,11 +1450,46 @@ function saveVoice(text) {
       updateVoiceCount();
       voiceMsg(v ? 'Saved. Your next daily focus, review and chat replies will use this voice.' : 'Cleared. Your coach is back to its default voice.', 'good');
       $('voiceIntro').textContent = v ? 'Your coach is using the voice below. Change it any time.' : 'Nothing set yet, so your coach uses its default voice. Pick a starting point or write your own.';
-      if (pending === 0) setStatus('Ready', 'ok');
+      if (pending === 0) idleStatus();
     })
     .catch(err => {
       voiceMsg(err.message, 'err');
-      if (isAuthError(err)) fail(err); else if (pending === 0) setStatus('Ready', 'ok');
+      if (isAuthError(err)) fail(err); else if (pending === 0) idleStatus();
+    });
+}
+
+/** Keeps the text in the box as a named voice in the sheet (a name already kept is replaced). The coach's own voice is not touched. */
+function saveMyVoice() {
+  if (!Api.isConfigured()) return voiceMsg('Connect first (the fields above).', 'err');
+  const name = $('voiceName').value.trim(), text = $('voiceText').value;
+  if (!name) { voiceMsg('Give this voice a name first, in the box under the text.', 'err'); $('voiceName').focus(); return; }
+  if (!text.trim()) return voiceMsg('Write the voice first, then save it.', 'err');
+  voiceMsg('Saving…');
+  request('Saving', 'saveMyVoice', { name, text })
+    .then(({ res }) => {
+      if (STATE && res && Array.isArray(res.myVoices)) { STATE.myVoices = res.myVoices; saveCache(); }
+      renderMyVoices();
+      voiceMsg('Kept as “' + name + '”. It is under My voices on every device. To make your coach use it, press Save voice.', 'good');
+      if (pending === 0) idleStatus();
+    })
+    .catch(err => {
+      voiceMsg(err.message, 'err');
+      if (isAuthError(err)) fail(err); else if (pending === 0) idleStatus();
+    });
+}
+
+function removeMyVoice(id) {
+  voiceMsg('Removing…');
+  request('Removing', 'removeMyVoice', { id })
+    .then(({ res }) => {
+      if (STATE && res && Array.isArray(res.myVoices)) { STATE.myVoices = res.myVoices; saveCache(); }
+      renderMyVoices();
+      voiceMsg('Removed.', 'good');
+      if (pending === 0) idleStatus();
+    })
+    .catch(err => {
+      voiceMsg(err.message, 'err');
+      if (isAuthError(err)) fail(err); else if (pending === 0) idleStatus();
     });
 }
 

@@ -1,4 +1,4 @@
-// LearnerBot app payload 2026.10.13
+// LearnerBot app payload 2026.10.14
 // ============================================================
 // Agents.js
 // ============================================================
@@ -324,6 +324,8 @@ const ACTIONS = {
     return { ok: true };
   },
   saveCoachVoice: a => ({ coachVoice: setCoachVoice(a.text) }),
+  saveMyVoice:    a => ({ myVoices: saveMyVoice(a.name, a.text) }),
+  removeMyVoice:  a => ({ myVoices: removeMyVoice(a.id) }),
   saveAppearance: a => ({ appearance: setAppearance(a) }),
 
   saveNotifications: a => saveNotifications(a),
@@ -361,6 +363,7 @@ function getState() {
     streak:         safe('streak',   getStreak,                        0),
     weekMinutes:    safe('minutes',  weekMinutes,                      0),
     coachVoice:     safe('voice',    getCoachVoice,                    ''),
+    myVoices:       safe('myvoices', getMyVoices,                      []),
     appearance:     safe('look',     getAppearance,                    null),
     housekeeping:   safe('tidy',     getHousekeeping,                  null),
     notify:         safe('notify',   _notifyView,                      null),
@@ -426,11 +429,11 @@ function _ensureHeaders() {
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.5';
-const APP_VERSION = '2026.10.13';
+const APP_RELEASE = '1.7';
+const APP_VERSION = '2026.10.14';
 
 const AI_CALLS_PER_HOUR = 40;
-const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800 };
+const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800, voiceName: 30, myVoices: 12 };
 
 // How the site looks is saved in the sheet so every device matches. Only these names are accepted; the site
 // keeps the same lists in js/look.js (a test fails if they drift apart).
@@ -1712,17 +1715,19 @@ function getSetting(key) {
 function setSetting(key, value, max) {
   let v = String(value == null ? '' : value).replace(/\r\n?/g, '\n').slice(0, max || LIMITS.text);
   if (!v.trim()) v = '';
-  return withLock(() => {
-    const i = rows('Settings').findIndex(x => String(x[0]) === key);
-    if (i < 0) { _appendRow('Settings', [key, v]); return v; }
-    _timeIt('write', () => {
-      const rng = getSheet('Settings').getRange(i + 2, 2);
-      rng.setNumberFormat('@');
-      rng.setValue(v);
-    });
-    _invalidate('Settings');
-    return v;
+  return withLock(() => { _putSetting(key, v); return v; });
+}
+
+/** Writes one Settings row (adds it if missing). The caller already holds the lock: locks cannot be nested. */
+function _putSetting(key, v) {
+  const i = rows('Settings').findIndex(x => String(x[0]) === key);
+  if (i < 0) { _appendRow('Settings', [key, v]); return; }
+  _timeIt('write', () => {
+    const rng = getSheet('Settings').getRange(i + 2, 2);
+    rng.setNumberFormat('@');
+    rng.setValue(v);
   });
+  _invalidate('Settings');
 }
 
 /** The saved look ({theme, primary, accent, font}), or null when none has been saved or the saved text is not usable. */
@@ -1759,6 +1764,70 @@ function setAppearance(a) {
 
 function getCoachVoice()      { return getSetting('coach_voice'); }
 function setCoachVoice(text)  { return setSetting('coach_voice', text, LIMITS.voice); }
+
+// ---- My voices: coach voices the person wrote and keeps, so they can switch between them ----
+// Stored as one JSON list in the Settings tab (key my_voices): [{ id, name, text }]. Choosing one only fills the voice
+// box on the page; the voice the coach uses is still coach_voice, saved the usual way, so nothing here changes the coach.
+
+/** Text as typed (line breaks normalised, stray control characters dropped), cut to the voice limit; '' when blank. */
+function _voiceText(v) {
+  const t = String(v == null ? '' : v).replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').slice(0, LIMITS.voice);
+  return t.trim() ? t : '';
+}
+
+/** A name for a saved voice: one line, single spaces, cut to the limit. */
+function _voiceName(v) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, LIMITS.voiceName); }
+
+/** The saved voices, oldest first. An unreadable or odd saved list is treated as having nothing in it. */
+function getMyVoices() {
+  const raw = getSetting('my_voices');
+  if (!raw) return [];
+  let list;
+  try { list = JSON.parse(raw); } catch (_) { return []; }
+  if (!Array.isArray(list)) return [];
+  const seen = {};
+  return list.filter(x => x && typeof x === 'object' && typeof x.id === 'string' && /^v\d{1,6}$/.test(x.id) && !seen[x.id] && (seen[x.id] = true))
+    .map(x => ({ id: x.id, name: _voiceName(x.name), text: _voiceText(x.text) }))
+    .filter(x => x.name && x.text)
+    .slice(0, LIMITS.myVoices);
+}
+
+function _storeMyVoices(list) {
+  const json = JSON.stringify(list);
+  if (json.length > 45000) throw _err('bad_request', 'Those voices are too long to keep. Shorten or remove some.');   // a cell holds 50,000 characters
+  _putSetting('my_voices', json);
+}
+
+/** Keeps a voice under a name (a name already in the list, in any capitals, is replaced). Answers with the whole list. */
+function saveMyVoice(name, text) {
+  const n = _voiceName(name), t = _voiceText(text);
+  if (!n) throw _err('bad_request', 'Give this voice a name.');
+  if (!t) throw _err('bad_request', 'Write the voice first, then save it.');
+  return withLock(() => {
+    _invalidate('Settings');
+    const list = getMyVoices();
+    const same = list.findIndex(v => v.name.toLowerCase() === n.toLowerCase());
+    if (same >= 0) list[same] = { id: list[same].id, name: n, text: t };
+    else {
+      if (list.length >= LIMITS.myVoices) throw _err('bad_request', 'You can keep ' + LIMITS.myVoices + ' voices of your own. Remove one first.');
+      const next = list.reduce((m, v) => Math.max(m, Number(v.id.slice(1))), 0) + 1;
+      list.push({ id: 'v' + next, name: n, text: t });
+    }
+    _storeMyVoices(list);
+    return list;
+  });
+}
+
+/** Forgets a saved voice (one that is already gone is not an error). Answers with the whole list. */
+function removeMyVoice(id) {
+  return withLock(() => {
+    _invalidate('Settings');
+    const list = getMyVoices();
+    const keep = list.filter(v => v.id !== String(id));
+    if (keep.length !== list.length) _storeMyVoices(keep);
+    return keep;
+  });
+}
 
 // ---- Feedback -----------------------------------------------
 

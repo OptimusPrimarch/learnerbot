@@ -93,14 +93,20 @@
       <summary>Coach voice</summary>
       <p class="muted" id="voiceIntro" style="margin:6px 0 8px"></p>
       <div id="voicePresets" role="group" aria-label="Starting points"></div>
+      <div id="myVoices" class="needs-new" role="group" aria-label="My voices"></div>
       <label class="head" for="voiceText" style="margin-top:12px">How should your coach sound?</label>
       <textarea id="voiceText" rows="4" maxlength="800" placeholder="Write it in your own words, like: Be blunt. Remind me when a deadline is close. A little humour is fine." spellcheck="true"></textarea>
       <div class="voice-foot"><span class="muted" id="voiceCount">0 / 800</span></div>
+      <div class="voice-save needs-new">
+        <input id="voiceName" type="text" maxlength="30" placeholder="Name it to keep it, e.g. Gym buddy" aria-label="Name for this voice" data-enter="saveMyVoice" autocomplete="off">
+        <button type="button" class="ghost" data-act="saveMyVoice">Save to my voices</button>
+      </div>
       <p id="voiceMsg" class="cfg-msg" role="status"></p>
       <div class="row">
         <button type="button" data-act="saveVoice">Save voice</button>
         <button type="button" class="ghost" data-act="clearVoice">Back to default</button>
       </div>
+      <p class="muted needs-new" style="font-size:12px;margin-top:10px">Save to my voices keeps the text above in your sheet under that name, so it is there on every device. It does not change what your coach uses: pick a voice, then press Save voice.</p>
       <p class="muted" style="font-size:12px;margin-top:10px">Your words are given to the coach exactly as you write them. The voice changes how it talks, not what it knows, and it applies to the daily focus, weekly review and chat replies.</p>
     </details>
     <details class="timings" id="lookBox">

@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.10.13';
-  const RELEASE = '1.5';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.10.14';
+  const RELEASE = '1.7';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -43,6 +43,7 @@ const Mock = (() => {
       ],
       housekeeping: { purgeDays: 30, lastReview: iso(95) },
       coachVoice: '',
+      myVoices: [],
       feedback: [{ date: iso(3), text: 'Be more concrete about next steps.' }],
       history: [
         { week: iso(21), score: 4, summary: 'Slow start, mostly planning.' },
@@ -67,6 +68,7 @@ const Mock = (() => {
       if (s && s.goals) {   // older saved demos predate the email settings, deadlines, time and the coach voice
         s.notify = s.notify || seed().notify;
         s.coachVoice = s.coachVoice || '';
+        s.myVoices = Array.isArray(s.myVoices) ? s.myVoices : [];
         s.goals.forEach(g => { if (g.due == null) g.due = ''; if (g.since == null) g.since = g.status === 'active' ? '' : iso(0); if (g.kept == null) g.kept = false; });
         s.journal.forEach((j, i) => { if (!j.id) j.id = String(i + 1); if (j.removed == null) j.removed = ''; });
         s.housekeeping = s.housekeeping || { purgeDays: 30, lastReview: iso(0) };
@@ -100,6 +102,7 @@ const Mock = (() => {
       streak: streak(),
       weekMinutes: weekMinutes(),
       coachVoice: db.coachVoice || '',
+      myVoices: db.myVoices || [],
       appearance: db.appearance || null,
       housekeeping: housekeeping(),
       notify: notifyView(),
@@ -344,6 +347,22 @@ const Mock = (() => {
         db.coachVoice = v; save();
         return { coachVoice: v };
       }
+      case 'saveMyVoice': {
+        const name = String(a.name == null ? '' : a.name).replace(/\s+/g, ' ').trim().slice(0, 30);
+        const text = String(a.text == null ? '' : a.text).replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').slice(0, 800);
+        need(name, 'Give this voice a name.');
+        need(text.trim(), 'Write the voice first, then save it.');
+        db.myVoices = db.myVoices || [];
+        const same = db.myVoices.findIndex(v => v.name.toLowerCase() === name.toLowerCase());
+        if (same >= 0) db.myVoices[same] = { id: db.myVoices[same].id, name, text };
+        else {
+          need(db.myVoices.length < 12, 'You can keep 12 voices of your own. Remove one first.');
+          db.myVoices.push({ id: 'v' + (db.myVoices.reduce((m, v) => Math.max(m, Number(v.id.slice(1))), 0) + 1), name, text });
+        }
+        save();
+        return { myVoices: db.myVoices };
+      }
+      case 'removeMyVoice': db.myVoices = (db.myVoices || []).filter(v => v.id !== String(a.id)); save(); return { myVoices: db.myVoices };
       case 'setGoalStatus':  setStatus(db.goals, a, ['active', 'completed', 'postponed', 'archived']); save(); return { ok: true };
       case 'addTask': {
         need(db.goals.some(g => g.id === String(a.goalId)), 'That goal does not exist.');

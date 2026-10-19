@@ -5,6 +5,19 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.7 · build 2026.10.14 · 2026-10-19
+
+**Keep your own coach voices (Settings > Coach voice)**
+- Write a voice, give it a name and press **Save to my voices**. It is kept in your sheet, so it shows up under **My voices** on
+  every device, next to the ready-made ones. Pick one to load it into the box, change it if you like, and press **Save voice** to
+  make your coach use it
+- Up to 12 of your own, a name of up to 30 characters and up to 800 characters of words (the same limit as the voice your coach
+  uses). Saving under a name you already have replaces that voice, and the ✕ beside one removes it
+- Keeping a voice does not change the one your coach is using, and the coach only ever sees the voice you saved with **Save voice**
+
+**Needs the script update:** yes, a small one. Press **Update now**. Your sheet gets one new row in the Settings tab (`my_voices`)
+when you first keep a voice; nothing else changes.
+
 ## 1.6 · website only · script build stays 2026.10.13 · 2026-10-19
 
 **A simpler Dashboard**
