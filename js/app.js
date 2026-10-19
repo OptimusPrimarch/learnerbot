@@ -29,7 +29,7 @@ let updateError = '';            // why the last update attempt failed, shown in
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
 const EXPECTED_BACKEND = '2026.10.11';
-const EXPECTED_RELEASE = '1.2';   // the name people see for that build (backend/Code.js APP_RELEASE)
+const SITE_RELEASE = '1.3';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const CUSTOM_LOOK_BUILD = '2026.10.11';   // the first script build that can save the Custom theme
 const VERSION_KEY = 'learnerbot.backendVersion';
@@ -424,20 +424,29 @@ function saveGoalEdit(id) {
 }
 
 // ---- views ---------------------------------------------------
+// Each tab is a button and the box it shows.
+const VIEWS = { dash: ['navDash', 'mainGrid'], review: ['navReview', 'reviewView'], asst: ['navAsst', 'asstView'], history: ['navHist', 'histView'] };
+const VIEW_BOXES = '#mainGrid, #reviewView, #asstView';
+
 function switchView(v) {
+  if (!Object.prototype.hasOwnProperty.call(VIEWS, v)) v = 'dash';
   VIEW = v;
-  $('navDash').classList.toggle('active', v === 'dash');
-  $('navHist').classList.toggle('active', v === 'history');
-  $('mainGrid').hidden = v !== 'dash';
-  $('histView').hidden = v !== 'history';
+  Object.keys(VIEWS).forEach(k => {
+    const [btn, box] = VIEWS[k];
+    $(btn).classList.toggle('active', k === v);
+    $(btn).setAttribute('aria-current', k === v ? 'page' : 'false');
+    $(box).hidden = k !== v;
+  });
   if (STATE) render();
+  if (v === 'asst') { const log = $('chatLog'); log.scrollTop = log.scrollHeight; }
+  window.scrollTo(0, 0);
 }
 
 function snapshotInputs() {
   const snap = { values: {}, focus: null };
-  document.querySelectorAll('#mainGrid input[id], #mainGrid textarea[id], #mainGrid select[id]').forEach(el => { snap.values[el.id] = el.value; });
+  document.querySelectorAll(VIEW_BOXES.split(', ').map(b => b + ' input[id], ' + b + ' textarea[id], ' + b + ' select[id]').join(', ')).forEach(el => { snap.values[el.id] = el.value; });
   const a = document.activeElement;
-  if (a && a.id && a.closest('#mainGrid')) snap.focus = { id: a.id, start: a.selectionStart, end: a.selectionEnd };
+  if (a && a.id && a.closest(VIEW_BOXES)) snap.focus = { id: a.id, start: a.selectionStart, end: a.selectionEnd };
   return snap;
 }
 function restoreInputs(snap) {
@@ -464,7 +473,7 @@ function renderNotices() {
       ? `<button data-act="updateApp"${updating ? ' disabled' : ''}>${updating ? 'Updating…' : 'Update now'}</button>`
       : `<a class="btn" href="update.html">Update now</a>`;
     out.push(`<div class="notice warn" role="status"><div>
-      <b>A newer version of LearnerBot (${esc(EXPECTED_RELEASE)}) is available for your sheet.</b>
+      <b>A newer version of LearnerBot is available for your sheet.</b>
       <div class="muted">${forceUpdateNotice ? 'What you just tried needs it. ' : ''}Your goals, key and settings stay exactly as they are. ${canUpdate ? 'It takes a few seconds.' : STATE.role === 'device' ? 'Update it from your computer.' : 'It takes about two minutes.'}</div>
       ${updateError ? `<div class="cfg-msg err" role="alert">That did not work: ${esc(updateError)} You can also <a href="update.html">update by hand</a>.</div>` : ''}
       <div class="notice-actions">${STATE.role === 'device' ? '' : action}${updating ? '' : '<button class="ghost" data-act="dismissNotice" data-kind="update">Not now</button>'}</div>
@@ -486,7 +495,7 @@ function render() {
   document.body.classList.toggle('legacy', backendOutdated());   // hides controls an older script would silently ignore
   renderNotices();
   const snap = snapshotInputs();
-  if (VIEW === 'history') renderHistory(); else renderDash();
+  if (VIEW === 'history') renderHistory(); else if (VIEW === 'review') renderReview(); else if (VIEW === 'asst') renderAsst(); else renderDash();
   restoreInputs(snap);
   syncAiButtons();
 }
@@ -496,19 +505,35 @@ function syncAiButtons() {
   document.querySelectorAll('[data-act="runDaily"], [data-act="runWeekly"]').forEach(b => { b.disabled = aiBusy; });
 }
 
+// Dashboard: today's focus, then the log (so adding an entry never means scrolling past every goal), then the goals.
 function renderDash() {
   const s = STATE;
   const g = $('mainGrid');
   g.innerHTML = '';
   g.appendChild(focusCard(s.dailyReport));
+  g.appendChild(logCard());
   g.appendChild(goalsCard(arr(s.goals), arr(s.tasks)));
+}
+
+// Review: the weekly review, the proposed plan and the score history.
+function renderReview() {
+  const s = STATE;
+  const g = $('reviewView');
+  g.innerHTML = '';
   g.appendChild(weeklyCard(s.weeklyReport));
   g.appendChild(planCard(s.weeklyReport));
-  g.appendChild(logCard());
-  g.appendChild(feedbackCard(arr(s.recentFeedback), arr(s.history)));
+  g.appendChild(scoresCard(arr(s.history)));
+}
+
+// Assistant: the chat is fixed markup in the page (so it keeps its text); the Steer card beside it is redrawn.
+function renderAsst() {
+  const host = $('steerHost');
+  host.innerHTML = '';
+  host.appendChild(steerCard(arr(STATE.recentFeedback)));
 }
 
 function showConnect() {
+  switchView('dash');
   $('mainGrid').innerHTML = `<div class="card wide connect">
     <img class="logo-lg" src="logo-128.png" width="88" height="88" alt="">
     <h3>Welcome to LearnerBot</h3>
@@ -778,7 +803,7 @@ function logCard() {
   return d;
 }
 
-function feedbackCard(feedback, history) {
+function steerCard(feedback) {
   const d = div('card');
   let html = `
     <label class="head" for="fbText">Steer the Assistant</label>
@@ -789,12 +814,21 @@ function feedbackCard(feedback, history) {
     html += `<label class="head" style="margin-top:14px">Recent feedback</label>
       <ul class="plain">${feedback.map(f => `<li class="muted" style="font-size:13px">${esc(f.text)}</li>`).join('')}</ul>`;
   }
+  d.innerHTML = html;
+  return d;
+}
+
+function scoresCard(history) {
+  const d = div('card wide');
+  let html = '<label class="head">Weekly scores</label>';
   if (history.length) {
     const bars = history.map(h => {
       const score = Number(h.score) || 0;
       return `<div class="bar" style="height:${Math.max(0, Math.min(10, score)) * 8 + 4}px" title="Week of ${esc(h.week)}: ${esc(h.score)}/10"><span>${h.score == null ? '–' : esc(h.score)}</span></div>`;
     }).join('');
-    html += `<label class="head" style="margin-top:14px">Weekly scores</label><div class="bars">${bars}</div>`;
+    html += `<div class="bars">${bars}</div>`;
+  } else {
+    html += '<p class="empty">Scores appear here after your first weekly review.</p>';
   }
   d.innerHTML = html;
   return d;
@@ -833,7 +867,7 @@ const HANDLERS = {
   lookPrimary: d => setLook({ theme: 'custom', primary: d.v }),
   lookScheme: d => { const x = Look.SCHEMES[Number(d.v)]; if (x) setLook({ theme: 'custom', primary: x.primary, accent: x.accent }); },
   lookReset:  () => setLook({ theme: 'dark', primary: '', accent: '', font: 'system', size: 'medium' }),
-  voicePreset: d => { if (VOICE_PRESETS[d.preset]) { $('voiceText').value = VOICE_PRESETS[d.preset]; updateVoiceCount(); voiceMsg('Filled in. Edit it if you like, then press Save voice.'); } },
+  voicePreset: d => { const v = Voices.byId[d.preset]; if (v) { $('voiceText').value = v.text; updateVoiceCount(); voiceMsg('Filled in. Edit it if you like, then press Save voice.'); } },
   saveVoice:   () => saveVoice($('voiceText').value),
   clearVoice:  () => { $('voiceText').value = ''; saveVoice(''); },
   sendPhoneLink,
@@ -849,11 +883,6 @@ const HANDLERS = {
   useDemo:    () => { Api.setConfig({ mode: 'demo' }); resetSession(); $('settings').close(); boot(); },
   disconnect: () => { Api.setConfig({}); clearCaches(); resetSession(); $('settings').close(); showConnect(); },
   refresh:    () => { if (Api.isConfigured()) { needsResync = false; load(); } },
-  chatToggle: (_, el) => {
-    const dock = $('chat');
-    dock.classList.toggle('collapsed');
-    el.setAttribute('aria-expanded', String(!dock.classList.contains('collapsed')));
-  },
 
   filterTag:  d => { TAG_FILTER = d.tag && TAG_FILTER !== d.tag ? d.tag : null; if (STATE) render(); },
   toggleChildForm: d => {
@@ -1177,15 +1206,14 @@ function syncLook(saved) {
 
 // ---- coach voice ---------------------------------------------
 // The user's own words, stored exactly as typed and handed to the coach as instructions on how to sound.
-// The presets only fill the box; nothing is saved until Save, and the text stays editable.
-const VOICE_MAX = 800;
-const VOICE_PRESETS = {
-  gentle: 'Be warm and encouraging. Celebrate small wins, go easy on misses, and suggest small, doable next steps. Never guilt-trip me.',
-  straight: 'Be direct and honest. No sugar-coating and no filler. Tell me plainly what is working, what is not, and what to do next.',
-  sergeant: 'Coach me like a drill sergeant: short, loud, demanding. Hold me to my deadlines, call out excuses and missed days, and push me to do the next thing right now.',
-  roast: 'Roast me. Be funny and sharp about the things I missed or put off, then give me a real next step. Tease my habits and my excuses, never me as a person.',
-  mentor: 'Be a calm, experienced mentor. Ask what is really blocking me, keep perspective, and keep your advice short and practical.'
-};
+// The ready-made voices only fill the box; nothing is saved until Save, and the text stays editable.
+const VOICE_MAX = Voices.MAX;
+
+/** The ready-made voices (js/voices.js) as grouped buttons. */
+function buildVoiceForm() {
+  $('voicePresets').innerHTML = Voices.GROUPS.map(g => `<div class="vgroup"><span class="vlabel">${esc(g.label)}</span><div class="presets">${
+    g.voices.map(v => `<button type="button" class="ghost run" data-act="voicePreset" data-preset="${esc(v.id)}">${esc(v.label)}</button>`).join('')}</div></div>`).join('');
+}
 const voiceMsg = (t, k) => paneMsg('voiceMsg', t, k);
 
 function updateVoiceCount() {
@@ -1404,10 +1432,10 @@ function renderVersionLine() {
   const btn = (act, label, busy) => `<button type="button" class="ghost run" data-act="${act}"${updating ? ' disabled' : ''}>${updating ? busy : label}</button>`;
   let html;
   if (backendOutdated()) {
-    html = `Your sheet's script is ${STATE.release ? 'LearnerBot ' + esc(STATE.release) + ', ' : ''}${STATE.version ? 'build ' + esc(STATE.version) : 'an older version'}; the newest is LearnerBot ${esc(EXPECTED_RELEASE)} (build ${esc(EXPECTED_BACKEND)}). ` +
+    html = `LearnerBot ${esc(SITE_RELEASE)}. Your sheet's script is ${STATE.version ? 'build ' + esc(STATE.version) : 'an older version'}; the newest is build ${esc(EXPECTED_BACKEND)}. ` +
       (info && master ? btn('updateApp', 'Update now', 'Updating…') : master ? '<a href="update.html">Update it (about 2 minutes)</a>.' : 'Update it from your computer.');
   } else {
-    html = `Your sheet's script is up to date: LearnerBot ${esc(STATE.release || EXPECTED_RELEASE)}, build ${esc(STATE.version || EXPECTED_BACKEND)}.`;
+    html = `LearnerBot ${esc(SITE_RELEASE)}. Your sheet's script is up to date (build ${esc(STATE.version || EXPECTED_BACKEND)}).`;
   }
   if (info && info.canRollback && master) html += ' ' + btn('rollbackApp', 'Go back to ' + esc(info.rollbackTo), 'Going back…');
   if (info && info.loadError) html += `<div class="cfg-msg err">${esc(info.loadError)}</div>`;
@@ -1428,9 +1456,13 @@ function openSettings(message, kind) {
   setTokenVisible(false);
   $('cfgToken').placeholder = cfg.token ? 'Saved for this URL. Leave blank to keep it, or paste a new one' : 'Paste the access token';
   cfgMsg(typeof message === 'string' ? message : '', kind);
+  // The connection section opens only when there is something to fix (not connected yet, or a refused connection).
+  const needsConnect = !Api.isConfigured() || (typeof message === 'string' && message !== '');
+  $('connectBox').open = needsConnect;
   const dlg = $('settings');
   if (!dlg.open) dlg.showModal();
-  $('cfgUrl').focus();
+  // Never pull focus into a text box on open: on a phone that raises the keyboard. With a mouse, help when the connection needs fixing.
+  if (needsConnect && window.matchMedia && matchMedia('(pointer:fine)').matches) $('cfgUrl').focus();
 }
 
 async function saveSettings() {
@@ -1457,7 +1489,7 @@ async function saveSettings() {
   cfgMsg('Testing the connection…');
   try {
     const info = await Api.call('ping');
-    cfgMsg('Connected' + (info.version ? ' (' + (info.release ? 'LearnerBot ' + info.release + ', ' : '') + 'build ' + info.version + ')' : '') + '.' +
+    cfgMsg('Connected' + (info.version ? ' (script build ' + info.version + ')' : '') + '.' +
       (info.hasKey ? '' : ' No Groq key is saved yet, so the AI features will not work until you add one.'), 'good');
     resetSession();
     $('settings').close();
@@ -1554,6 +1586,7 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('DOMContentLoaded', () => {
   $('chatForm').addEventListener('submit', sendChat);
   $('voiceText').addEventListener('input', updateVoiceCount);
+  buildVoiceForm();
   buildLookForm();
   syncLookForm();
   $('lookFont').addEventListener('change', e => setLook({ font: e.target.value }));

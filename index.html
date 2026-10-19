@@ -38,60 +38,61 @@
       </div>
     </div>
     <nav class="tabs" aria-label="Views">
-      <button class="nav-btn" id="navDash" data-act="view" data-view="dash">Dashboard</button>
-      <button class="nav-btn" id="navHist" data-act="view" data-view="history">History</button>
-      <button class="nav-btn" data-act="refresh" title="Refresh" aria-label="Refresh">↻</button>
-      <button class="nav-btn" data-act="settings" title="Settings" aria-label="Settings">⚙</button>
+      <div class="views">
+        <button class="nav-btn" id="navDash" data-act="view" data-view="dash">Dashboard</button>
+        <button class="nav-btn" id="navReview" data-act="view" data-view="review">Review</button>
+        <button class="nav-btn" id="navAsst" data-act="view" data-view="asst">Assistant</button>
+        <button class="nav-btn" id="navHist" data-act="view" data-view="history">History</button>
+      </div>
+      <div class="tools">
+        <button class="nav-btn" data-act="refresh" title="Refresh" aria-label="Refresh">↻</button>
+        <button class="nav-btn" data-act="settings" title="Settings" aria-label="Settings">⚙</button>
+      </div>
     </nav>
   </header>
 
   <div id="notices"></div>
   <div id="mainGrid" class="grid"></div>
+  <div id="reviewView" hidden></div>
+  <div id="asstView" hidden>
+    <section class="card chat-card" aria-label="Chat">
+      <label class="head">Talk to your dashboard</label>
+      <div id="chatLog" aria-live="polite"></div>
+      <form class="chat-form" id="chatForm">
+        <input id="chatInput" type="text" placeholder="Say something…" autocomplete="off" aria-label="Message">
+        <button type="submit" aria-label="Send">→</button>
+      </form>
+    </section>
+    <div id="steerHost"></div>
+  </div>
   <div id="histView" hidden></div>
-</div>
-
-<!-- chat dock -->
-<div id="chat" class="collapsed">
-  <div class="chat-head" data-act="chatToggle" role="button" tabindex="0" aria-expanded="false">
-    <span>💬 Talk to your dashboard</span><span>▾</span>
-  </div>
-  <div class="chat-body">
-    <div id="chatLog" aria-live="polite"></div>
-    <form class="chat-form" id="chatForm">
-      <input id="chatInput" type="text" placeholder="Say something…" autocomplete="off" aria-label="Message">
-      <button type="submit">→</button>
-    </form>
-  </div>
 </div>
 
 <dialog id="settings">
   <div class="dlg">
     <div class="dlg-head">
-      <h2>Connect your LearnerBot</h2>
-      <button type="button" class="ghost run dlg-close" data-act="closeSettings" aria-label="Close settings">Close</button>
+      <h2>Settings</h2>
+      <button type="button" class="ghost run dlg-close" data-act="closeSettings" aria-label="Close settings" autofocus>Close</button>
     </div>
-    <p class="muted" style="font-size:14px">Your goals live in your own Google Sheet, and this page talks to it directly. Paste the two values from the sheet's <b>LearnerBot → Show connection info</b> menu. New here? Follow the <a href="setup.html">setup guide</a>.</p>
-    <label class="head" for="cfgUrl">Web app URL</label>
-    <input id="cfgUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="saveSettings">
-    <div class="card-head" style="margin:14px 0 6px"><label class="head" for="cfgToken">Access token</label><button type="button" class="ghost run" id="tokenToggle" data-act="toggleToken">Show</button></div>
-    <input id="cfgToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="saveSettings">
-    <p id="cfgMsg" class="cfg-msg" role="alert"></p>
-    <div class="row">
-      <button type="button" data-act="saveSettings">Save &amp; test</button>
-      <button type="button" class="ghost" data-act="useDemo">Try demo data</button>
-      <button type="button" class="ghost" data-act="disconnect">Disconnect</button>
-    </div>
+    <details class="timings" id="connectBox">
+      <summary>Connect your LearnerBot</summary>
+      <p class="muted" style="font-size:14px">Your goals live in your own Google Sheet, and this page talks to it directly. Paste the two values from the sheet's <b>LearnerBot → Show connection info</b> menu. New here? Follow the <a href="setup.html">setup guide</a>.</p>
+      <label class="head" for="cfgUrl">Web app URL</label>
+      <input id="cfgUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="saveSettings">
+      <div class="card-head" style="margin:14px 0 6px"><label class="head" for="cfgToken">Access token</label><button type="button" class="ghost run" id="tokenToggle" data-act="toggleToken">Show</button></div>
+      <input id="cfgToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" data-enter="saveSettings">
+      <p id="cfgMsg" class="cfg-msg" role="alert"></p>
+      <div class="row">
+        <button type="button" data-act="saveSettings">Save &amp; test</button>
+        <button type="button" class="ghost" data-act="useDemo">Try demo data</button>
+        <button type="button" class="ghost" data-act="disconnect">Disconnect</button>
+      </div>
+    </details>
     <p id="versionLine" class="muted" style="font-size:13px;margin-top:12px" hidden></p>
     <details class="timings needs-new" id="voiceBox">
       <summary>Coach voice</summary>
       <p class="muted" id="voiceIntro" style="margin:6px 0 8px"></p>
-      <div class="presets" role="group" aria-label="Starting points">
-        <button type="button" class="ghost run" data-act="voicePreset" data-preset="gentle">Gentle</button>
-        <button type="button" class="ghost run" data-act="voicePreset" data-preset="straight">Straight talk</button>
-        <button type="button" class="ghost run" data-act="voicePreset" data-preset="sergeant">Drill sergeant</button>
-        <button type="button" class="ghost run" data-act="voicePreset" data-preset="roast">Roast me</button>
-        <button type="button" class="ghost run" data-act="voicePreset" data-preset="mentor">Calm mentor</button>
-      </div>
+      <div id="voicePresets" role="group" aria-label="Starting points"></div>
       <label class="head" for="voiceText" style="margin-top:12px">How should your coach sound?</label>
       <textarea id="voiceText" rows="4" maxlength="800" placeholder="Write it in your own words, like: Be blunt. Remind me when a deadline is close. A little humour is fine." spellcheck="true"></textarea>
       <div class="voice-foot"><span class="muted" id="voiceCount">0 / 800</span></div>
@@ -103,7 +104,7 @@
       <p class="muted" style="font-size:12px;margin-top:10px">Your words are given to the coach exactly as you write them. The voice changes how it talks, not what it knows, and it applies to the daily focus, weekly review and chat replies.</p>
     </details>
     <details class="timings" id="lookBox">
-      <summary>Look</summary>
+      <summary>Appearance</summary>
       <p class="muted" id="lookIntro" style="margin:6px 0 4px">Theme, accent color and font are saved in your sheet, so every device you connect looks the same. Text size stays on this device.</p>
       <div class="look-group"><label class="head" id="lookThemeLabel">Theme</label><div class="seg" id="lookTheme" role="group" aria-labelledby="lookThemeLabel"></div></div>
       <div class="look-group"><label class="head" id="lookSchemeLabel">Ready-made color schemes</label><div class="seg" id="lookScheme" role="group" aria-labelledby="lookSchemeLabel"></div></div>
@@ -144,7 +145,7 @@
       </div>
     </details>
     <details class="timings" id="timingsBox">
-      <summary>Request timings</summary>
+      <summary>Speed and diagnostics</summary>
       <div id="timingsList" class="muted"></div>
       <button type="button" class="ghost run" data-act="copyTimings">Copy timings</button>
     </details>
@@ -158,6 +159,7 @@
 
 <script src="js/mock.js"></script>
 <script src="js/api.js"></script>
+<script src="js/voices.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

@@ -95,16 +95,11 @@ details.tasks > summary::-webkit-details-marker,details.subgoals > summary::-web
 .hist-title{flex:1;min-width:0;font-variant:small-caps}
 
 /* chat dock */
-#chat{position:fixed;right:16px;bottom:16px;width:340px;max-width:calc(100vw - 32px);z-index:99}
-.chat-head{background:var(--accent);color:var(--on-accent);padding:10px 14px;border-radius:10px 10px 0 0;font-weight:700;cursor:pointer;display:flex;justify-content:space-between;user-select:none}
-.chat-body{background:var(--panel);border:1px solid var(--border);border-top:0;border-radius:0 0 10px 10px}
-#chatLog{max-height:260px;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:7px}
 .msg{padding:7px 10px;border-radius:9px;max-width:88%;white-space:pre-wrap;font-size:calc(14px*var(--fs));line-height:1.45}
 .msg.you{background:var(--accent);color:var(--on-accent);align-self:flex-end}
 .msg.bot{background:var(--panel2);border:1px solid var(--border);align-self:flex-start}
 .chat-form{display:flex;gap:6px;padding:8px;border-top:1px solid var(--border)}
 .chat-form input{flex:1}
-#chat.collapsed .chat-body{display:none}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -157,14 +152,13 @@ details.timings > summary{cursor:pointer;color:var(--muted);padding:6px 0}
 details.timings #timingsList{margin:6px 0 10px;line-height:1.7}
 
 /* toast + undo bar: one fixed stack, so the two never sit on top of each other */
-#toasts{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;width:max-content;max-width:min(560px,calc(100vw - 32px));z-index:200;pointer-events:none}
+#toasts{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;width:max-content;max-width:min(560px,calc(100vw - 32px));z-index:200;pointer-events:none}
 #toast{display:none;background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:10px;font-size:calc(14px*var(--fs));max-width:100%}
 #toast.show{display:block;animation:pop .2s ease-out}
 #toast.error{border-color:var(--red-line);color:var(--err-fg)}
 #undo{pointer-events:auto;display:flex;align-items:center;gap:12px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:6px 8px 6px 16px;font-size:calc(14px*var(--fs));max-width:100%;animation:pop .2s ease-out}
 #undo span{min-width:0;overflow-wrap:anywhere}
 @keyframes pop{from{transform:translateY(10px)}to{transform:none}}
-@media(max-width:680px){#toasts{bottom:calc(76px + env(safe-area-inset-bottom))}}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
 /* notices above the dashboard */
@@ -188,6 +182,7 @@ a.btn.ghost-link:hover{color:var(--text);border-color:var(--accent);filter:none}
 .edit-form .row{margin-top:6px;flex-wrap:wrap}
 .edit-form .row input{flex:1 1 140px;width:auto;min-width:0}
 .presets{display:flex;flex-wrap:wrap;gap:6px}
+.vlabel{display:block;font-size:calc(11px*var(--fs));text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:10px 0 4px}
 .voice-foot{display:flex;justify-content:flex-end;font-size:calc(12px*var(--fs));margin-top:4px}
 #voiceText{min-height:96px}
 body.legacy .needs-new{display:none!important}
@@ -195,12 +190,12 @@ body.legacy .needs-new{display:none!important}
 /* ---- header, card headers ---- */
 html{-webkit-text-size-adjust:100%}
 button{touch-action:manipulation}
-body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
+body{padding-bottom:calc(32px + env(safe-area-inset-bottom))}
 .brand{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;min-width:0}
-.tabs{display:flex;gap:8px;align-items:center}
+.tabs{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.views,.tools{display:flex;gap:8px;flex-wrap:wrap}
 .card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
 .card-head label.head{margin:0}
-#chat.collapsed .chat-head{border-radius:10px}
 
 /* ---- phones and touch screens: bigger tap targets, no iOS zoom-on-focus ---- */
 @media(max-width:680px),(pointer:coarse){
@@ -211,7 +206,6 @@ body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
   .nav-btn{min-height:40px;padding:6px 14px;font-size:calc(13px*var(--fs))}
   details.tasks > summary,details.subgoals > summary{padding:9px 0;font-size:calc(13px*var(--fs))}
   .task-list li{min-height:40px;padding:6px 0}
-  .chat-head{min-height:44px;align-items:center}
   .tag[role="button"]{padding:7px 11px;font-size:calc(11px*var(--fs))}
   .notify-row label{min-height:40px}
   .task-add button,.child-form button{min-width:40px}
@@ -220,9 +214,13 @@ body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
 @media(max-width:680px){
   .wrap{padding:14px 12px}
   header{gap:12px;margin-bottom:14px}
-  .brand,.tabs{width:100%}
-  .tabs .nav-btn{flex:1;text-align:center}
-  .tabs .nav-btn[aria-label="Settings"],.tabs .nav-btn[aria-label="Refresh"]{flex:0 0 52px}
+  /* Row 1: the title and chips with refresh and settings at the right. Row 2: the four tabs across the full width. */
+  header{align-items:flex-start}
+  .tabs{display:contents}
+  .brand{flex:1 1 0;width:auto}
+  .tools{order:1}
+  .views{order:2;flex:1 1 100%}
+  .views .nav-btn{flex:1 1 auto;text-align:center;padding:6px 8px}
   .grid{gap:12px}
   .card{padding:14px}
 
@@ -250,8 +248,6 @@ body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
   .task-add{margin-left:0}
 
   /* chat becomes a full-width bottom sheet */
-  #chat{left:8px;right:8px;width:auto;max-width:none;bottom:calc(8px + env(safe-area-inset-bottom))}
-  #chatLog{max-height:38vh}
   .msg{max-width:92%;font-size:calc(15px*var(--fs))}
   .dlg{padding:16px}
   .dlg .row button{flex:1 1 40%}
@@ -276,3 +272,11 @@ body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
 .dots i{width:14px;height:14px;border-radius:50%;border:1px solid var(--border);display:inline-block}
 .dots i + i{margin-left:-5px}
 @media(max-width:680px),(pointer:coarse){.swatch{width:40px;height:40px}.swatches input[type="color"]{width:52px;height:40px}}
+
+/* ---- Review and Assistant tabs ---- */
+#reviewView{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+#asstView{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:14px;align-items:start}
+@media(max-width:680px){#reviewView,#asstView{grid-template-columns:minmax(0,1fr);gap:12px}}
+#chatLog{height:min(58vh,520px);overflow-y:auto;padding:4px 2px 8px;display:flex;flex-direction:column;gap:7px}
+.chat-card .chat-form{border-top:1px solid var(--border);padding:10px 0 0;margin-top:8px}
+.bars{margin-bottom:22px}

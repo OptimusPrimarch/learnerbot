@@ -1,7 +1,7 @@
 # LearnerBot (web)
 
-Current release: **1.2** (build 2026.10.11). See [CHANGELOG.md](CHANGELOG.md). A release has a name people see and a
-build id the update check compares; Settings shows both.
+Current release: **1.3** (the sheet's script is build 2026.10.11). See [CHANGELOG.md](CHANGELOG.md). A release has a name people
+see; the script has its own build id that the update check compares, and it changes only when the script does.
 
 A static front end for LearnerBot, hosted on GitHub Pages. It has no server of its own:
 every person connects it to **their own** Google Sheet through a small Apps Script web
