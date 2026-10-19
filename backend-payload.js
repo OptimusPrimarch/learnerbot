@@ -1,4 +1,4 @@
-// LearnerBot app payload 2026.10.12
+// LearnerBot app payload 2026.10.13
 // ============================================================
 // Agents.js
 // ============================================================
@@ -290,19 +290,19 @@ const ACTIONS = {
 
   // Small changes answer with just what the page needs (the page already updated itself),
   // not a re-read of every tab. AI actions below still return the full state.
-  addGoal: a => ({ goal: addGoal(a.title, a.priority, a.tags, a.parentId, a.due) }),
+  addGoal: a => ({ goal: addGoal(a.title, a.priority, a.tags, a.parentId, a.due, a.ref, a.replay === true) }),
   updateGoal: a => ({ goal: updateGoal(a.id, a.fields) }),
   setGoalStatus: a => {
     if (!setGoalStatus(a.id, a.status)) throw _err('not_found', 'Goal not found.');
     return { ok: true };
   },
-  addTask: a => ({ task: addTask(a.goalId, a.title) }),
+  addTask: a => ({ task: addTask(a.goalId, a.title, a.ref, a.replay === true) }),
   setTaskStatus: a => {
     if (!setTaskStatus(a.id, a.status)) throw _err('not_found', 'Task not found.');
     return { ok: true };
   },
   logActivity: a => {
-    const entry = addJournalEntry(a.text, a.tags, a.minutes);
+    const entry = addJournalEntry(a.text, a.tags, a.minutes, a.ref, a.replay === true);
     maybePurge();
     return { entry: entry, streak: getStreak(), weekMinutes: weekMinutes() };
   },
@@ -320,7 +320,7 @@ const ACTIONS = {
 
   updatePlan: a => updatePlan(a),
   submitFeedback: a => {
-    addFeedback(a.text);
+    addFeedback(a.text, a.ref, a.replay === true);
     return { ok: true };
   },
   saveCoachVoice: a => ({ coachVoice: setCoachVoice(a.text) }),
@@ -426,8 +426,8 @@ function _ensureHeaders() {
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.4';
-const APP_VERSION = '2026.10.12';
+const APP_RELEASE = '1.5';
+const APP_VERSION = '2026.10.13';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800 };
@@ -783,6 +783,19 @@ function _nextJournalId() {
     if (last < 2) return 1;
     return sh.getRange(2, 5, last - 1, 1).getValues().reduce((m, r) => Math.max(m, parseInt(r[0], 10) || 0), 0) + 1;
   });
+}
+
+/** The entry a change created earlier, found by the page's id for that change (see _ref). */
+function _journalEntryByRef(ref) {
+  const sh = getSheet('Journal');
+  const last = sh.getLastRow();
+  if (last < 2 || sh.getLastColumn() < 8) return null;
+  const refs = _timeIt('read', () => sh.getRange(2, 8, last - 1, 1).getValues());
+  const k = refs.findIndex(r => String(r[0]) === ref);
+  if (k < 0) return null;
+  const row = _timeIt('read', () => sh.getRange(k + 2, 1, 1, 8).getValues()[0]);
+  if (row[4] === '' || row[4] == null) return null;
+  return { id: String(row[4]), date: _day(row[0]).slice(0, 10), text: String(row[1]), tags: _parseTags(row[2]), minutes: _minutes(row[3]) };
 }
 
 /** The 1-based sheet row of an entry (hidden ones included), or 0 when there is none. */
@@ -1270,12 +1283,12 @@ function redeemPairing(a) {
 // New columns are only ever added at the end, and initHeaders() adds a missing header to an existing
 // sheet, so older sheets pick them up on the first request after an update.
 const TABS = {
-  Goals:    ['ID', 'Title', 'Priority', 'Status', 'Created', 'Tags', 'ParentID', 'Due', 'StatusDate', 'Reviewed'],
-  Journal:  ['Date', 'Text', 'Tags', 'Minutes', 'ID', 'Status', 'Removed'],
+  Goals:    ['ID', 'Title', 'Priority', 'Status', 'Created', 'Tags', 'ParentID', 'Due', 'StatusDate', 'Reviewed', 'Ref'],
+  Journal:  ['Date', 'Text', 'Tags', 'Minutes', 'ID', 'Status', 'Removed', 'Ref'],
   Reports:  ['Date', 'Type', 'Data', 'Score'],
-  Feedback: ['Date', 'Text'],
+  Feedback: ['Date', 'Text', 'Ref'],
   History:  ['Week', 'Score', 'Summary'],
-  Tasks:    ['ID', 'GoalID', 'Title', 'Status', 'Created', 'StatusDate'],
+  Tasks:    ['ID', 'GoalID', 'Title', 'Status', 'Created', 'StatusDate', 'Ref'],
   Chat:     ['Timestamp', 'Role', 'Text'],
   Settings: ['Key', 'Value']
 };
@@ -1436,9 +1449,19 @@ function _nextId(name) {
 
 function withLock(fn) {
   const lock = LockService.getScriptLock();
-  _timeIt('lock', () => lock.waitLock(20000));
+  // Not getting the lock means another request was busy writing. That passes, so the page keeps the change and sends it again.
+  try { _timeIt('lock', () => lock.waitLock(20000)); }
+  catch (e) { throw _err('busy', 'The sheet is busy right now. Your change is kept and will be sent again in a moment.'); }
   try { return fn(); } finally { lock.releaseLock(); }
 }
+
+/**
+ * The page's own id for one change (a 16-character hex string). A change that was sent but whose answer was lost
+ * is sent again with `replay` set; the row it created the first time is found by this id and returned instead of
+ * being created twice. Anything that is not a plain hex id is ignored.
+ */
+function _ref(v) { return typeof v === 'string' && /^[0-9a-f]{8,32}$/.test(v) ? v : ''; }
+const _refOf = (r, col) => (r[col] !== '' && r[col] != null ? String(r[col]) : '');
 
 // ---- Small helpers ------------------------------------------
 
@@ -1526,7 +1549,9 @@ function getHistoryGoals() {
 }
 
 /** Adds a goal and returns it in the same shape getAllGoals() uses. `due` is optional (yyyy-mm-dd). */
-function addGoal(title, priority, tags, parentId, due) {
+function addGoal(title, priority, tags, parentId, due, ref, replay) {
+  const r = _ref(ref);
+  if (r && replay) { const hit = rows('Goals').find(x => _refOf(x, 10) === r); if (hit) return _goal(hit); }
   const t = _clip(title, LIMITS.title);
   if (!t) throw _err('bad_request', 'A goal needs a title.');
   const dueDay = _cleanDue(due);
@@ -1537,7 +1562,7 @@ function addGoal(title, priority, tags, parentId, due) {
     const p = _priority(priority);
     const tagStr = _tagString(tags);
     const created = _today();
-    _appendRow('Goals', [id, t, p, 'active', created, tagStr, parent, dueDay]);
+    _appendRow('Goals', [id, t, p, 'active', created, tagStr, parent, dueDay, '', '', r]);
     return { id: String(id), title: t, priority: p, status: 'active', created: created, tags: _parseTags(tagStr), parentId: parent, due: dueDay, since: '', kept: false };
   });
 }
@@ -1589,17 +1614,21 @@ function setGoalStatus(id, status) {
 
 function getAllTasks() {
   return rows('Tasks').filter(r => r[0] !== '' && r[3] !== 'removed')
-    .map(r => ({ id: String(r[0]), goalId: String(r[1]), title: String(r[2]), status: String(r[3]), created: _day(r[4]) }));
+    .map(_task);
 }
 
-function addTask(goalId, title) {
+const _task = r => ({ id: String(r[0]), goalId: String(r[1]), title: String(r[2]), status: String(r[3]), created: _day(r[4]) });
+
+function addTask(goalId, title, ref, replay) {
+  const rf = _ref(ref);
+  if (rf && replay) { const hit = rows('Tasks').find(x => _refOf(x, 6) === rf); if (hit) return _task(hit); }
   const t = _clip(title, LIMITS.title);
   if (!t) throw _err('bad_request', 'A task needs a title.');
   if (!rows('Goals').some(r => String(r[0]) === String(goalId))) throw _err('not_found', 'That goal does not exist.');
   return withLock(() => {
     const id = _nextId('Tasks');
     const created = _today();
-    _appendRow('Tasks', [id, String(goalId), t, 'active', created]);
+    _appendRow('Tasks', [id, String(goalId), t, 'active', created, '', rf]);
     return { id: String(id), goalId: String(goalId), title: t, status: 'active', created: created };
   });
 }
@@ -1633,13 +1662,15 @@ const JOURNAL_TAIL = 1500;
 function _visibleJournal(tail) { return rows('Journal', tail).filter(r => r[5] !== 'removed'); }
 
 /** Logs an entry for today and returns it. `minutes` is optional (whole minutes; the page offers 15-minute steps). */
-function addJournalEntry(text, tags, minutes) {
+function addJournalEntry(text, tags, minutes, ref, replay) {
+  const rf = _ref(ref);
+  if (rf && replay) { const hit = _journalEntryByRef(rf); if (hit) return hit; }
   const t = _clip(text, LIMITS.text);
   if (!t) throw _err('bad_request', 'Nothing to log.');
   const mins = _cleanMinutes(minutes);
   return withLock(() => {
     const id = _nextJournalId(), date = _today(), tagStr = _tagString(tags);
-    _appendRow('Journal', [date, t, tagStr, mins, id, '', '']);
+    _appendRow('Journal', [date, t, tagStr, mins, id, '', '', rf]);
     return { id: String(id), date: date, text: t, tags: _parseTags(tagStr), minutes: mins === '' ? 0 : mins };
   });
 }
@@ -1731,10 +1762,12 @@ function setCoachVoice(text)  { return setSetting('coach_voice', text, LIMITS.vo
 
 // ---- Feedback -----------------------------------------------
 
-function addFeedback(text) {
+function addFeedback(text, ref, replay) {
+  const rf = _ref(ref);
+  if (rf && replay && rows('Feedback').some(x => _refOf(x, 2) === rf)) return;
   const t = _clip(text, LIMITS.text);
   if (!t) throw _err('bad_request', 'Nothing to send.');
-  withLock(() => _appendRow('Feedback', [_today(), t]));
+  withLock(() => _appendRow('Feedback', [_today(), t, rf]));
 }
 
 function getRecentFeedback(n) {

@@ -5,6 +5,28 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.5 · build 2026.10.13 · 2026-10-19
+
+**Changes made without a connection are kept and sent later**
+- Adding, completing, postponing, removing or editing goals and tasks, logging activity, editing or removing log entries and
+  sending feedback now work with no signal. Each change shows on screen at once, is saved in this browser, and goes to your
+  sheet in the order you made it as soon as it can be reached
+- The status chip at the top says **3 changes waiting** while anything is unsent; press it to try now. It also tries again by
+  itself (after a few seconds, then less and less often), when the phone or computer says it is back online, and when you come
+  back to the tab
+- Closing the page or reloading does not lose them: the dashboard comes back with your new goals and tasks shown as waiting, and
+  they are sent when you reopen it
+- Nothing is applied twice. Each new goal, task, log entry or note carries its own id, and the sheet recognises one it already
+  saved when the answer was lost on the way back
+- A change the sheet turns down is dropped with a message that names it (and so are changes that depended on it, like a task for a
+  goal that could not be saved). A wrong token or a busy sheet keeps everything and tries again. Disconnecting while changes are
+  waiting asks first
+- Settings, the AI coach and updates still need a connection and show the usual message when there is none
+
+**Needs the script update:** yes, a small one. Press **Update now**. Until you do, offline changes still work, but with an older
+script a change whose answer got lost on the way back could be saved twice. Your sheet gains a `Ref` column on goals, tasks, log
+entries and feedback by itself (new items fill it in; old rows stay empty) and nothing is deleted.
+
 ## 1.4 · build 2026.10.12 · 2026-10-19
 
 **Look back at your log (History > Log)**

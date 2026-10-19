@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.10.12';
-  const RELEASE = '1.4';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.10.13';
+  const RELEASE = '1.5';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };

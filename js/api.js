@@ -35,7 +35,7 @@ const Api = (() => {
 
   // `target` ({url, token}) is for the one call that happens before this device has a saved connection:
   // redeeming a pairing link. Everything else uses the saved connection.
-  async function send(action, args, target) {
+  async function send(action, args, target, timeoutMs) {
     lastServer = null;
     if (!target) {
       if (isDemo()) return Mock.call(action, args || {});
@@ -46,7 +46,7 @@ const Api = (() => {
     if (!validateUrl(url)) throw fail('bad_url', 'The saved URL is not a Google Apps Script web app URL.');
 
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs || TIMEOUT_MS);
     let res;
     try {
       // text/plain keeps this a "simple" request, so the browser skips the CORS preflight
@@ -81,7 +81,7 @@ const Api = (() => {
 
   // Duration of each request (queue wait excluded), newest last, kept for the Settings readout.
   const timings = [];
-  async function timed(action, args, onResult) {
+  async function timed(action, args, onResult, timeoutMs) {
     const t0 = performance.now();
     let ok = true;
     // `args` may be a function so a queued request can pick up ids that were still
@@ -89,7 +89,7 @@ const Api = (() => {
     // `onResult` runs before the next queued request is built, so it can record the real id
     // that request needs; plain promise callbacks would run one step too late.
     try {
-      const res = await send(action, typeof args === 'function' ? args() : args);
+      const res = await send(action, typeof args === 'function' ? args() : args, null, timeoutMs);
       if (onResult) onResult(res);
       return res;
     }
@@ -101,8 +101,8 @@ const Api = (() => {
   }
 
   // One request at a time keeps writes in order, so "apply the latest response" is always right.
-  function call(action, args, onResult) {
-    const p = chain.then(() => timed(action, args, onResult));
+  function call(action, args, onResult, timeoutMs) {
+    const p = chain.then(() => timed(action, args, onResult, timeoutMs));
     chain = p.catch(() => {});
     return p;
   }
@@ -115,8 +115,11 @@ const Api = (() => {
   }
 
   // The deployment id inside a backend URL, and back. Pairing links carry the id so a phone needs nothing else.
+  // What tells one connection from another in this browser's storage (the saved dashboard, the changes waiting to be sent).
+  const connectionKey = () => (cfg.mode === 'demo' ? 'demo' : String(cfg.url || '').slice(-48));
+
   const backendId = u => { const m = /\/s\/([A-Za-z0-9_-]+)\/exec$/.exec(String(u || '')); return m ? m[1] : ''; };
   const backendUrl = id => 'https://script.google.com/macros/s/' + id + '/exec';
 
-  return { call, callPublic, backendId, backendUrl, getConfig, setConfig, isDemo, isConfigured, validateUrl, timings: () => timings.slice() };
+  return { call, callPublic, connectionKey, backendId, backendUrl, getConfig, setConfig, isDemo, isConfigured, validateUrl, timings: () => timings.slice() };
 })();

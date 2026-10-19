@@ -13,10 +13,8 @@ const OPEN_DETAILS = new Set();
 let pending = 0;        // requests in flight
 let aiBusy = false;
 let chatReady = false;
-let unsaved = 0;         // changes made here that the server has not confirmed yet
 let needsResync = false; // a full-state answer was skipped because newer local edits are in flight
 let lastLoadAt = 0;
-let tmpCounter = 0;
 const ID_MAP = new Map(); // temporary id -> real id, once the server has answered
 let EDITING = null;       // id of the goal whose inline editor is open
 let forceUpdateNotice = false;   // an action the sheet's script did not recognise: show the update notice even if dismissed
@@ -28,8 +26,8 @@ let updateError = '';            // why the last update attempt failed, shown in
 // The backend version this copy of the site was written for. A sheet script older than this keeps working for
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
-const EXPECTED_BACKEND = '2026.10.12';
-const SITE_RELEASE = '1.4';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
+const EXPECTED_BACKEND = '2026.10.13';
+const SITE_RELEASE = '1.5';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const CUSTOM_LOOK_BUILD = '2026.10.11';   // the first script build that can save the Custom theme
 const VERSION_KEY = 'learnerbot.backendVersion';
@@ -111,6 +109,9 @@ function fmtMinutes(m) {
 function setStatus(msg, kind) {
   const c = $('statusChip');
   c.className = 'chip' + (kind ? ' ' + kind : '');
+  // While changes are waiting to be sent the chip is a button: pressing it tries again now.
+  if (kind === 'wait') { c.setAttribute('role', 'button'); c.tabIndex = 0; c.dataset.act = 'sendNow'; }
+  else { c.setAttribute('role', 'status'); c.removeAttribute('tabindex'); delete c.dataset.act; }
   c.textContent = '';
   if (kind === 'busy') { const sp = document.createElement('span'); sp.className = 'spinner'; c.appendChild(sp); }
   c.appendChild(document.createTextNode(msg));
@@ -158,11 +159,11 @@ function updateModeUi() { $('demoChip').hidden = !Api.isDemo(); }
 // ---- talking to the backend ----------------------------------
 const isAuthError = e => ['unauthorized', 'not_configured', 'bad_url'].includes(e && e.code);
 
-function request(label, action, args, onResult) {
+function request(label, action, args, onResult, timeoutMs) {
   pending++;
   setStatus(label + ' …', 'busy');
-  return Api.call(action, args, onResult).then(
-    res => { pending--; return { res, latest: pending === 0 }; },
+  return Api.call(action, args, onResult, timeoutMs).then(
+    res => { pending--; return { res, latest: pending === 0 && !Queue.size() }; },
     err => { pending--; throw err; }
   );
 }
@@ -174,7 +175,7 @@ function fail(err, what) {
   if (err && err.code === 'bad_action') { forceUpdateNotice = true; if (STATE) renderNotices(); }   // the sheet's script predates this feature
   toast(what ? `Could not save "${what}": ${err.message}` : err.message, 'error');
   // Resync so an optimistic change that did not stick disappears; wait until the queue is idle.
-  if (pending === 0) { needsResync = false; setStatus('Error', 'err'); load(); }
+  if (pending === 0 && !Queue.size()) { needsResync = false; setStatus('Error', 'err'); load(); }
   else needsResync = true;
 }
 
@@ -183,13 +184,17 @@ function load() {
   return request(label, 'getState')
     .then(({ res, latest }) => {
       if (latest || !STATE) applyState(res);
-      else needsResync = true;   // newer local edits are in flight; fetch again once they settle
+      else needsResync = true;   // newer local edits are in flight or waiting; fetch again once they are sent
+      if (Queue.size()) pumpQueue();   // the sheet answered, so anything waiting can go now
     })
     .catch(err => {
       if (isAuthError(err)) return fail(err);
       if (STATE) {   // keep showing what we have
-        setStatus('Offline — showing saved data', 'err');
-        $('statusChip').title = err.message;
+        if (Queue.size()) showWaiting(err);
+        else {
+          setStatus('Offline — showing saved data', 'err');
+          $('statusChip').title = err.message;
+        }
       } else {
         setStatus('Could not load — ' + err.message, 'err');
       }
@@ -210,7 +215,7 @@ function applyState(s, opts) {
   lastLoadAt = Date.now();
   $('statusChip').title = '';
   if (arr(s._errors).length) setStatus('Partial error: ' + s._errors.join(' | '), 'err');
-  else setStatus('Ready', 'ok');
+  else idleStatus();
   saveCache();
 }
 
@@ -218,32 +223,136 @@ function applyState(s, opts) {
 function settle() {
   render();
   if (pending > 0) return;
-  setStatus('Ready', 'ok');
+  idleStatus();
   saveCache();
-  if (needsResync) { needsResync = false; load(); }
+  if (needsResync && !Queue.size()) { needsResync = false; load(); }
+}
+
+// ---- changes waiting to be sent -------------------------------
+// A change is applied here at once, written to the queue (queue.js) and sent from there in order. Reaching the sheet
+// can fail for a while (no signal, a busy sheet); the change then stays queued, shown as "N changes waiting", and is
+// sent again when the connection is back. The sheet only ever sees them one at a time, oldest first.
+const HOOKS = new Map();                            // ref -> what to do when that change is done (this page only)
+const CREATES = new Set(['addGoal', 'addTask', 'logActivity', 'submitFeedback']);   // changes the script can recognise by their ref
+const RETRY_CODES = ['network', 'busy', 'not_json'];   // not the change's fault: keep it and try again
+const RETRY_MS = [4000, 10000, 30000, 60000, 120000];
+const WRITE_TIMEOUT_MS = 45000;
+let pumping = false, retryTimer = 0, retryStep = 0, toldOffline = false, waitNote = '';
+
+const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+/** The status chip when nothing is being sent: "Ready", or how many changes are waiting. */
+function idleStatus() {
+  if (!Queue.size()) setStatus('Ready', 'ok');
+  else if (pumping && !offline()) setStatus('Saving …', 'busy');   // the next one is on its way
+  else showWaiting();
+}
+function showWaiting(err) {
+  const n = Queue.size();
+  if (!n) return;
+  if (err) waitNote = err.code === 'network' ? 'Your sheet could not be reached.' : err.message;   // the usual network message talks about setup, which is not the problem here
+  setStatus(n + (n === 1 ? ' change' : ' changes') + ' waiting', 'wait');
+  $('statusChip').title = 'Kept in this browser and sent in order as soon as your sheet can be reached. Press to try now.' + (waitNote ? ' (' + waitNote + ')' : '');
 }
 
 /**
- * One change: optional instant local edit, then the real request.
+ * One change: optional instant local edit, then it joins the queue and is sent.
  * Small changes come back as small answers (a new item, a streak), which `onOk` folds into STATE.
- * A full state (AI actions, or an older backend) replaces STATE only if it is the newest answer.
+ * `tmp` is the temporary id of a new goal or task; once the sheet answers, the real one replaces it.
  */
 function fire(label, action, args, opts) {
   const o = opts || {};
-  unsaved++;
+  if (Queue.size() >= Queue.MAX) {
+    toast('Too many changes are waiting to be sent. Reconnect first, then try again.', 'error');
+    if (o.onFail) o.onFail(new Error('queue full'));
+    return;
+  }
+  const rec = Queue.add({ ref: o.ref, action, args, what: o.what, label, tmp: o.tmp });
+  HOOKS.set(rec.ref, o);
   if (o.optimistic && STATE) { o.optimistic(); render(); }
-  return request(label, action, args, o.onResult)
-    .then(({ res, latest }) => {
-      if (res && res.goals) {
-        if (o.onOk) o.onOk(res, true);
-        if (latest) applyState(res); else needsResync = true;
-        return;
-      }
-      if (o.onOk) o.onOk(res, false);
-      settle();
-    })
-    .catch(err => { if (o.onFail) o.onFail(err); fail(err, o.what); })
-    .finally(() => { unsaved--; });
+  saveCache();
+  pumpQueue();   // does nothing when it is already sending; a new change is also a good moment to try again
+}
+
+/** What is sent for a waiting change: ids that were still temporary when it was made are real by now. */
+function queuedArgs(rec) {
+  const now = Queue.touch(rec.ref, { tries: (rec.tries || 0) + 1 }) || rec;
+  const a = { ...rec.args };
+  ['id', 'goalId', 'parentId'].forEach(k => { if (a[k]) a[k] = resolveId(a[k]); });
+  if (CREATES.has(rec.action)) {
+    a.ref = rec.ref;
+    if (now.tries > 1) a.replay = true;   // it may have got there already: the script looks for it before adding it again
+  }
+  return a;
+}
+
+/** Sends waiting changes, oldest first, until one cannot be sent right now. Safe to call at any time. */
+async function pumpQueue() {
+  if (pumping) return;
+  pumping = true;
+  clearTimeout(retryTimer);
+  retryTimer = 0;
+  try {
+    for (;;) {
+      const rec = Queue.all()[0];
+      if (!rec) break;
+      if (offline()) { holdOn(new Error('No connection.')); break; }
+      if (!(await sendOne(rec))) break;
+    }
+  } finally { pumping = false; }
+  if (!Queue.size()) { retryStep = 0; toldOffline = false; waitNote = ''; }
+}
+
+/** The next change cannot be sent right now: keep everything, say so (once), and try again later. */
+function holdOn(err) {
+  showWaiting(err);
+  if (!toldOffline) { toldOffline = true; toast('Not sent yet. It is kept on this device and goes out as soon as your sheet can be reached.'); }
+  scheduleRetry();
+}
+
+function scheduleRetry() {
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => { retryTimer = 0; pumpQueue(); }, RETRY_MS[Math.min(retryStep++, RETRY_MS.length - 1)]);
+}
+
+/** Sends one change. Answers true when the next one can go, false when sending should stop for now. */
+async function sendOne(rec) {
+  const hooks = HOOKS.get(rec.ref) || {};
+  let out;
+  try {
+    out = await request(rec.label || 'Saving', rec.action, () => queuedArgs(rec), null, WRITE_TIMEOUT_MS);
+  } catch (err) {
+    return queuedFailed(rec, hooks, err);
+  }
+  Queue.remove(rec.ref);
+  HOOKS.delete(rec.ref);
+  retryStep = 0;
+  toldOffline = false;
+  const res = out.res;
+  if (rec.action === 'addGoal' && rec.tmp) swapGoal(rec.tmp, res && res.goal);
+  if (rec.action === 'addTask' && rec.tmp) swapTask(rec.tmp, res && res.task);
+  if (hooks.onOk) hooks.onOk(res, !!(res && res.goals));
+  if (res && res.goals) {   // a sheet script from before small answers sends the whole state back
+    if (!Queue.size() && pending === 0) applyState(res); else needsResync = true;
+  } else settle();
+  return true;
+}
+
+function queuedFailed(rec, hooks, err) {
+  if (isAuthError(err)) { showWaiting(err); fail(err); return false; }   // keep everything; the person reconnects, then it goes
+  let keep = RETRY_CODES.includes(err && err.code);
+  if (!keep && err && err.code === 'error') {   // the sheet failed in a way that may pass (a Google hiccup): a few more tries
+    const now = Queue.touch(rec.ref, { fails: (rec.fails || 0) + 1 });
+    keep = !!now && now.fails < 3;
+  }
+  if (keep) { holdOn(err); return false; }
+  // The sheet refused this change for good. It goes, with any later change that depended on it.
+  Queue.remove(rec.ref);
+  HOOKS.delete(rec.ref);
+  if (rec.tmp) Queue.dropDependents(rec.tmp).forEach(d => HOOKS.delete(d.ref));
+  if (hooks.onFail) hooks.onFail(err);
+  fail(err, rec.what);
+  return true;
 }
 
 // ---- offline copy of the last dashboard ----------------------
@@ -251,13 +360,14 @@ function fire(label, action, args, opts) {
 const CACHE_PREFIX = 'learnerbot.state.v1:';
 function cacheKey() {
   const c = Api.getConfig();
-  return CACHE_PREFIX + (c.mode === 'demo' ? 'demo' : String(c.url || '').slice(-48));
+  return CACHE_PREFIX + Api.connectionKey();
 }
 const isTmp = id => String(id).startsWith('tmp_');
 function saveCache() {
-  if (!STATE || pending > 0) return;
+  if (!STATE) return;
   try {
-    const s = { ...STATE,
+    // With changes waiting, the dashboard as the person left it (new items included) is what a reload should show.
+    const s = Queue.size() ? STATE : { ...STATE,
       goals: STATE.goals.filter(g => !isTmp(g.id)),
       historyGoals: STATE.historyGoals.filter(g => !isTmp(g.id)),
       tasks: STATE.tasks.filter(t => !isTmp(t.id) && !isTmp(t.goalId)) };
@@ -305,7 +415,6 @@ function setTaskLocal(id, status) {
 // queued behind earlier ones, and anything that refers to the temporary id (a task on a brand
 // new goal, completing it, a sub-goal) looks the real id up when it is actually sent.
 const resolveId = id => ID_MAP.get(String(id)) || String(id);
-const newTmpId = () => 'tmp_' + (++tmpCounter);
 const parseTags = s => String(s || '').split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
 function todayStr() {
   const d = new Date();
@@ -313,9 +422,16 @@ function todayStr() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+// A temporary id becomes the real one: remembered for later changes, and changed in the waiting ones too.
+function bindId(tmp, realId) {
+  ID_MAP.set(tmp, String(realId));
+  Queue.rewrite(tmp, realId);
+}
+
 function swapGoal(tmp, real) {
   if (!real || !real.id) return;
-  ID_MAP.set(tmp, String(real.id));
+  bindId(tmp, real.id);
+  if (!STATE) return;
   const swap = x => (x.id === tmp ? { ...real, status: x.status }            // keep edits made while it was pending
     : x.parentId === tmp ? { ...x, parentId: String(real.id) } : x);
   STATE.goals = STATE.goals.map(swap);
@@ -327,39 +443,34 @@ function swapGoal(tmp, real) {
 
 function swapTask(tmp, real) {
   if (!real || !real.id) return;
-  ID_MAP.set(tmp, String(real.id));
+  bindId(tmp, real.id);
+  if (!STATE) return;
   STATE.tasks = STATE.tasks.map(t => (t.id === tmp ? { ...real, status: t.status } : t));
 }
 
 function addGoalNow({ title, priority, tags, parentId, due }) {
   if (!STATE) return;
-  const tmp = newTmpId();
+  const ref = Queue.newRef(), tmp = 'tmp_' + ref;
   const item = { id: tmp, title: title.slice(0, 200), priority: pri(priority), status: 'active', created: todayStr(),
     tags: parseTags(tags), parentId: parentId ? String(parentId) : '', due: due || '' };
   fire('Saving', 'addGoal',
-    () => ({ title, priority: item.priority, tags, parentId: item.parentId ? resolveId(item.parentId) : '', due: item.due }),
-    { optimistic: () => { STATE.goals = [...STATE.goals, item]; },
-      onResult: res => { if (res && res.goal && res.goal.id) ID_MAP.set(tmp, String(res.goal.id)); },
-      onOk: res => swapGoal(tmp, res && res.goal),
-      what: item.title });
+    { title, priority: item.priority, tags, parentId: item.parentId, due: item.due },
+    { ref, tmp, optimistic: () => { STATE.goals = [...STATE.goals, item]; }, what: item.title });
 }
 
 function addTaskNow(goalId, title) {
   if (!STATE) return;
-  const tmp = newTmpId();
+  const ref = Queue.newRef(), tmp = 'tmp_' + ref;
   const item = { id: tmp, goalId: String(goalId), title: title.slice(0, 200), status: 'active', created: todayStr() };
   fire('Saving', 'addTask',
-    () => ({ goalId: resolveId(goalId), title }),
-    { optimistic: () => { STATE.tasks = [...STATE.tasks, item]; },
-      onResult: res => { if (res && res.task && res.task.id) ID_MAP.set(tmp, String(res.task.id)); },
-      onOk: res => swapTask(tmp, res && res.task),
-      what: item.title });
+    { goalId: String(goalId), title },
+    { ref, tmp, optimistic: () => { STATE.tasks = [...STATE.tasks, item]; }, what: item.title });
 }
 
 const setGoal = (id, status, label) => fire(label, 'setGoalStatus',
-  () => ({ id: resolveId(id), status }), { optimistic: () => setGoalLocal(id, status) });
+  { id: String(id), status }, { optimistic: () => setGoalLocal(id, status) });
 const setTask = (id, status, label) => fire(label, 'setTaskStatus',
-  () => ({ id: resolveId(id), status }), { optimistic: () => setTaskLocal(id, status) });
+  { id: String(id), status }, { optimistic: () => setTaskLocal(id, status) });
 
 const findGoal = id => STATE && [...STATE.goals, ...STATE.historyGoals].find(x => x.id === String(id));
 
@@ -412,7 +523,7 @@ function saveGoalEdit(id) {
   if (!Object.keys(fields).length) return render();
   const local = { ...fields };
   if ('tags' in local) local.tags = tags;
-  fire('Saving', 'updateGoal', () => ({ id: resolveId(id), fields }), {
+  fire('Saving', 'updateGoal', { id: String(id), fields }, {
     optimistic: () => editGoalLocal(id, local),
     onOk: res => {
       // The server normalises (trim, upper-case tags); adopt its text once nothing newer is queued behind this.
@@ -936,7 +1047,13 @@ const HANDLERS = {
       .then(() => toast('Timings copied.'), () => toast('Could not copy. Select the text instead.', 'error'));
   },
   useDemo:    () => { Api.setConfig({ mode: 'demo' }); resetSession(); $('settings').close(); boot(); },
-  disconnect: () => { Api.setConfig({}); clearCaches(); resetSession(); $('settings').close(); showConnect(); },
+  sendNow:    () => { retryStep = 0; if (offline()) toast('Still offline. Your changes are kept on this device.'); pumpQueue(); },
+  disconnect: () => {
+    const n = Queue.size();
+    if (n && !confirm(n + (n === 1 ? ' change has' : ' changes have') + ' not reached your sheet yet. If you disconnect now ' + (n === 1 ? 'it is' : 'they are') + ' thrown away. Disconnect anyway?')) return;
+    Queue.clear(); HOOKS.clear();
+    Api.setConfig({}); clearCaches(); resetSession(); $('settings').close(); showConnect();
+  },
   refresh:    () => { if (Api.isConfigured()) { needsResync = false; load(); if (typeof invalidateLog === 'function') invalidateLog(); } },
 
   filterTag:  d => { TAG_FILTER = d.tag && TAG_FILTER !== d.tag ? d.tag : null; if (STATE) render(); },
@@ -1665,17 +1782,21 @@ function boot() {
   updateModeUi();
   const cached = loadCache();
   if (cached) applyState(cached.state, { cached: true });   // paint the last dashboard at once...
+  if (Queue.size()) { showWaiting(); pumpQueue(); }         // ...send what was still waiting from last time...
   load();                                                   // ...and bring it up to date in the background
 }
 
-// Closing the page while a save is still in flight can lose that change: ask first.
+// Changes are kept in this browser, so closing the page is safe. Only when the browser will not store anything do they need a warning.
 window.addEventListener('beforeunload', e => {
-  if (unsaved > 0) { e.preventDefault(); e.returnValue = ''; }
+  if (Queue.size() > 0 && !Queue.durable()) { e.preventDefault(); e.returnValue = ''; }
 });
 
-// Coming back to the tab after a while: quietly refresh (no timers, only on return).
+// Back online, or back on this tab: send what is waiting, and after a while quietly refresh (no timers for that, only on return).
+window.addEventListener('online', () => { retryStep = 0; if (Queue.size()) pumpQueue(); });
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && STATE && Api.isConfigured() && pending === 0 && Date.now() - lastLoadAt > 60000) load();
+  if (document.hidden || !STATE || !Api.isConfigured()) return;
+  if (Queue.size()) { retryStep = 0; pumpQueue(); }
+  else if (pending === 0 && Date.now() - lastLoadAt > 60000) load();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
