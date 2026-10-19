@@ -26,6 +26,25 @@ h1{font-size:calc(20px*var(--fs));letter-spacing:.2px}.dot{color:var(--accent)}
 @media(max-width:680px){.grid{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:16px}
 .card.wide{grid-column:1/-1}
+/* Log Activity and the goals each span the page, like Today's Focus above them: the log has its text on the left and the small fields beside it, and a goal is added from one line. */
+.log-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,320px);gap:10px;align-items:stretch}
+.log-form textarea{min-height:84px;height:100%}
+.log-side{display:flex;flex-direction:column;gap:8px}
+.log-side .row{margin-top:0}
+.log-side .row select{flex:1 1 auto;width:auto;min-width:0}
+.add-goal{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.add-goal input[type="text"]{width:auto;min-width:0}
+.add-goal .g-title{flex:3 1 260px}
+.add-goal select{width:auto;flex:0 0 auto}
+.add-goal .g-tags{flex:2 1 180px}
+.add-goal .due-field{flex:0 1 210px}
+@media(min-width:681px){.goals-card .goal-title{max-width:560px}}
+@media(max-width:680px){
+  .log-form{grid-template-columns:minmax(0,1fr)}
+  .log-form textarea{height:auto}
+  .add-goal .g-title{flex-basis:100%}
+  .add-goal .due-field{flex:1 1 180px}
+}
 .card.focus{background:linear-gradient(160deg,var(--focus-from),var(--panel));border-color:var(--focus-border)}
 label.head{display:block;font-size:calc(12px*var(--fs));text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px}
 h3{font-size:calc(17px*var(--fs));margin-bottom:8px}

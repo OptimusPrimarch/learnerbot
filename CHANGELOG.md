@@ -5,6 +5,16 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.6 · website only · script build stays 2026.10.13 · 2026-10-19
+
+**A simpler Dashboard**
+- Today's Focus, Log Activity and Active Goals are now three full-width sections, one under the other, instead of one wide
+  section and two columns. The log has its text box on the left with tags, time and **Log it** beside it, and a new goal is added
+  from a single line (title, priority, tags, due date, **Add**). On a phone they stack as before
+- Goal titles have room to show more of their text on a wide screen
+
+**Needs the script update:** no. Reload the page.
+
 ## 1.5 · build 2026.10.13 · 2026-10-19
 
 **Changes made without a connection are kept and sent later**

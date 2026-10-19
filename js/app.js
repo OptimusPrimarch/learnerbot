@@ -27,7 +27,7 @@ let updateError = '';            // why the last update attempt failed, shown in
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
 const EXPECTED_BACKEND = '2026.10.13';
-const SITE_RELEASE = '1.5';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
+const SITE_RELEASE = '1.6';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const CUSTOM_LOOK_BUILD = '2026.10.11';   // the first script build that can save the Custom theme
 const VERSION_KEY = 'learnerbot.backendVersion';
@@ -734,7 +734,7 @@ function goalsCard(goals, tasks) {
     else roots.push(nodeMap[g.id]);
   });
 
-  const d = div('card');
+  const d = div('card wide goals-card');
   let html = `<label class="head">Active Goals</label>`;
 
   if (topTags.length) {
@@ -752,16 +752,14 @@ function goalsCard(goals, tasks) {
   html += `
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
       <label class="head" style="margin-bottom:6px" for="goalTitle">Add Goal</label>
-      <input id="goalTitle" type="text" placeholder="Goal title…" style="margin-bottom:6px" data-enter="addGoal" maxlength="200">
-      <div class="row">
-        <select id="goalPri" style="width:auto" aria-label="Priority">
+      <div class="add-goal">
+        <input id="goalTitle" class="g-title" type="text" placeholder="Goal title…" data-enter="addGoal" maxlength="200">
+        <select id="goalPri" aria-label="Priority">
           <option value="high">High</option>
           <option value="medium" selected>Med</option>
           <option value="low">Low</option>
         </select>
-        <input id="goalTags" type="text" placeholder="Tags: WORK, AI (optional)" data-enter="addGoal" aria-label="Tags">
-      </div>
-      <div class="row">
+        <input id="goalTags" class="g-tags" type="text" placeholder="Tags: WORK, AI (optional)" data-enter="addGoal" aria-label="Tags">
         <label class="due-field needs-new">Due <input id="goalDue" type="date" aria-label="Due date (optional)" data-enter="addGoal"></label>
         <button data-act="addGoal">Add</button>
       </div>
@@ -954,17 +952,21 @@ function planSaveNow() {
 const MINUTE_STEPS = Array.from({ length: 32 }, (_, i) => (i + 1) * 15);
 
 function logCard() {
-  const d = div('card');
+  const d = div('card wide');
   d.innerHTML = `
     <label class="head" for="logText">Log Activity</label>
     <p class="muted" style="font-size:13px;margin-bottom:8px">What happened this week? Feeds your next weekly review.</p>
-    <textarea id="logText" placeholder="e.g. Shipped the auth refactor; studied system design." maxlength="2000"></textarea>
-    <input id="logTags" type="text" placeholder="Tags: WORK, AI (optional)" style="margin-top:6px" aria-label="Tags">
-    <div class="row">
-      <select id="logMins" class="needs-new" style="width:auto" aria-label="Time spent (optional)">
-        <option value="">Time (optional)</option>${MINUTE_STEPS.map(m => `<option value="${m}">${fmtMinutes(m)}</option>`).join('')}
-      </select>
-      <button data-act="logActivity">Log it</button>
+    <div class="log-form">
+      <textarea id="logText" placeholder="e.g. Shipped the auth refactor; studied system design." maxlength="2000"></textarea>
+      <div class="log-side">
+        <input id="logTags" type="text" placeholder="Tags: WORK, AI (optional)" aria-label="Tags">
+        <div class="row">
+          <select id="logMins" class="needs-new" aria-label="Time spent (optional)">
+            <option value="">Time (optional)</option>${MINUTE_STEPS.map(m => `<option value="${m}">${fmtMinutes(m)}</option>`).join('')}
+          </select>
+          <button data-act="logActivity">Log it</button>
+        </div>
+      </div>
     </div>`;
   return d;
 }
