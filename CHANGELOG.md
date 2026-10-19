@@ -5,6 +5,30 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.4 · build 2026.10.12 · 2026-10-19
+
+**Look back at your log (History > Log)**
+- A **Log** section in History: your entries newest first, grouped by day, with tags, time, a total for each day and a
+  tag filter. The last 30 days open first, with **Show older**
+- Edit an entry's text, tags or time, or remove it. Removing hides it at once and gives you the five-second Undo bar
+- Entries added on the Dashboard show up in the log straight away
+
+**Keeping the sheet light (Settings > Housekeeping)**
+- Removed log entries, goals and tasks are hidden first and deleted for good after **14 or 30 days** (you choose; 30 to start).
+  The clean-up runs on the first log entry or removal of the day, never from a timer. Completed goals are never deleted this way
+- A **tidy-up of completed goals** about every three months: each goal done for a month or more is kept as a record or removed
+  entirely (with its tasks). Small, quick goals (finished within two weeks, at most two tasks, no sub-goals, not high priority)
+  start on Remove; bigger ones start on Keep. You can change any choice, and nothing is deleted until you confirm
+- History shows when a goal was completed, and "kept" for goals you chose to keep
+
+**Edit the proposed plan (Review tab)**
+- Change the suggested goals (title, priority, why), add or remove some, and edit the priorities and focus areas, before
+  adding them as real goals. The next weekly review makes a fresh plan; the edited one stays in the earlier report
+
+**Needs the script update:** yes. Press **Update now**. Your sheet gains a few columns by itself (goals and tasks remember when
+they changed status; log entries get an id and a status) and nothing is deleted by the update: goals and tasks that were
+already completed or removed start counting from the day you update.
+
 ## 1.3 · website only · script build stays 2026.10.11 · 2026-10-19
 
 **Find things faster**

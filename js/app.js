@@ -28,8 +28,8 @@ let updateError = '';            // why the last update attempt failed, shown in
 // The backend version this copy of the site was written for. A sheet script older than this keeps working for
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
-const EXPECTED_BACKEND = '2026.10.11';
-const SITE_RELEASE = '1.3';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
+const EXPECTED_BACKEND = '2026.10.12';
+const SITE_RELEASE = '1.4';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const CUSTOM_LOOK_BUILD = '2026.10.11';   // the first script build that can save the Custom theme
 const VERSION_KEY = 'learnerbot.backendVersion';
@@ -426,7 +426,7 @@ function saveGoalEdit(id) {
 // ---- views ---------------------------------------------------
 // Each tab is a button and the box it shows.
 const VIEWS = { dash: ['navDash', 'mainGrid'], review: ['navReview', 'reviewView'], asst: ['navAsst', 'asstView'], history: ['navHist', 'histView'] };
-const VIEW_BOXES = '#mainGrid, #reviewView, #asstView';
+const VIEW_BOXES = '#mainGrid, #reviewView, #asstView, #histView';
 
 function switchView(v) {
   if (!Object.prototype.hasOwnProperty.call(VIEWS, v)) v = 'dash';
@@ -477,6 +477,15 @@ function renderNotices() {
       <div class="muted">${forceUpdateNotice ? 'What you just tried needs it. ' : ''}Your goals, key and settings stay exactly as they are. ${canUpdate ? 'It takes a few seconds.' : STATE.role === 'device' ? 'Update it from your computer.' : 'It takes about two minutes.'}</div>
       ${updateError ? `<div class="cfg-msg err" role="alert">That did not work: ${esc(updateError)} You can also <a href="update.html">update by hand</a>.</div>` : ''}
       <div class="notice-actions">${STATE.role === 'device' ? '' : action}${updating ? '' : '<button class="ghost" data-act="dismissNotice" data-kind="update">Not now</button>'}</div>
+    </div></div>`);
+  }
+  const hk = STATE.housekeeping;
+  // On the Dashboard only: the History tab shows its own tidy-up note, so it is not repeated there.
+  if (hk && VIEW === 'dash' && hk.reviewDue && hk.reviewCount > 0 && !backendOutdated() && !(typeof reviewNoticeDismissed !== 'undefined' && reviewNoticeDismissed)) {
+    out.push(`<div class="notice warn" role="status"><div>
+      <b>Time to tidy up.</b>
+      <div class="muted">${hk.reviewCount} completed ${hk.reviewCount === 1 ? 'goal is' : 'goals are'} ready to review. Keep the important ones as a record and remove the rest, so your sheet stays light.</div>
+      <div class="notice-actions"><button data-act="reviewStart">Review now</button><button class="ghost" data-act="dismissNotice" data-kind="review">Not now</button></div>
     </div></div>`);
   }
   if (STATE.hasKey === false && !Api.isDemo() && !keyNoticeDismissed) {
@@ -552,29 +561,17 @@ function showConnect() {
   hideUndo();
 }
 
-// ---- history view --------------------------------------------
-function renderHistory() {
-  const all = arr(STATE.historyGoals);
-  const groups = [
-    ['Completed', '✓', all.filter(g => g.status === 'completed')],
-    ['Postponed / On Hold', '⏸', all.filter(g => g.status === 'postponed')],
-    ['Removed', '✕', all.filter(g => g.status === 'archived')]
-  ];
-  let html = groups.filter(([, , list]) => list.length).map(([t, i, list]) => histSection(t, i, list)).join('');
-  if (!all.length) html = `<div class="card wide"><p class="empty">No goal history yet. Complete or postpone goals to see them here.</p></div>`;
-  $('histView').innerHTML = html;
-}
-
-function histSection(title, icon, goals) {
+// ---- history: goal rows (the History tab itself, with its Goals and Log sections, is in js/history.js) ----
+function histSection(title, icon, goals, note) {
   const rows = goals.map(g => `
     <div class="hist-row">
       <span class="pill ${statusClass(g.status)}">${icon} ${esc(g.status)}</span>
       <span class="hist-title">${esc(g.title)}</span>
       ${arr(g.tags).length ? `<span class="tags">${g.tags.map(tagChip).join('')}</span>` : ''}
-      <span class="hist-meta">added ${esc(fmtDate(g.created))}</span>
-      <button class="icon ghost" data-act="reactivate" data-id="${esc(g.id)}" title="Reactivate" aria-label="Reactivate">↺</button>
+      <span class="hist-meta">${g.status === 'completed' && g.since ? 'done ' + esc(fmtDate(g.since)) + (g.kept ? ' \u00b7 kept' : '') : 'added ' + esc(fmtDate(g.created))}</span>
+      <button class="icon ghost" data-act="reactivate" data-id="${esc(g.id)}" title="Reactivate" aria-label="Reactivate">\u21ba</button>
     </div>`).join('');
-  return `<div class="card wide hist-section"><label class="head">${esc(title)}</label>${rows}</div>`;
+  return `<div class="card wide hist-section"><label class="head">${esc(title)}</label>${rows}${note ? `<p class="muted" style="font-size:12px;margin-top:8px">${esc(note)}</p>` : ''}</div>`;
 }
 
 // ---- cards ---------------------------------------------------
@@ -758,13 +755,36 @@ function weeklyCard(rep) {
   return d;
 }
 
+// The proposed plan can be edited in place; PLAN_EDIT is the draft while the editor is open.
+let PLAN_EDIT = null;
+let planKey = 0;
+const planDraftGoal = g => ({ key: ++planKey, title: g.title || '', priority: pri(g.priority), rationale: g.rationale || '' });
+
 function planCard(rep) {
   const d = div('card');
-  let html = `<label class="head">Proposed Plan</label>`;
-  if (rep && rep.data && rep.data.plan) {
+  let html = `<div class="card-head"><label class="head">Proposed Plan</label>${rep && rep.data && rep.data.plan && !PLAN_EDIT ? '<button class="ghost run needs-new" data-act="planEdit">Edit</button>' : ''}</div>`;
+  if (PLAN_EDIT) {
+    const e = PLAN_EDIT;
+    html += `<div class="plan-edit">
+      <label class="head">Suggested goals</label>
+      ${e.goals.map(g => `<div class="pe-goal">
+        <input id="pgt_${g.key}" type="text" value="${esc(g.title)}" maxlength="200" placeholder="Goal title" aria-label="Goal title">
+        <div class="row">
+          <select id="pgp_${g.key}" style="width:auto" aria-label="Priority">${PRIORITIES.map(p => `<option value="${p}"${pri(g.priority) === p ? ' selected' : ''}>${p === 'medium' ? 'Med' : p[0].toUpperCase() + p.slice(1)}</option>`).join('')}</select>
+          <input id="pgr_${g.key}" type="text" value="${esc(g.rationale || '')}" maxlength="300" placeholder="Why (optional)" aria-label="Why">
+          <button type="button" class="icon ghost" data-act="planDrop" data-key="${g.key}" title="Remove this suggestion" aria-label="Remove this suggestion">\u2715</button>
+        </div></div>`).join('')}
+      ${e.goals.length < 10 ? '<div class="row"><button type="button" class="ghost" data-act="planAddGoal">+ Add a goal</button></div>' : ''}
+      <label class="head" for="ppText" style="margin-top:12px">Priorities (one per line)</label>
+      <textarea id="ppText" rows="4" placeholder="One priority per line">${esc(e.priorities)}</textarea>
+      <label class="head" for="pfText" style="margin-top:12px">Focus areas (separated by commas)</label>
+      <input id="pfText" type="text" value="${esc(e.focus)}" placeholder="e.g. Consistency, Deep work">
+      <div class="row"><button data-act="planSave">Save plan</button><button class="ghost" data-act="planCancel">Cancel</button></div>
+    </div>`;
+  } else if (rep && rep.data && rep.data.plan) {
     const p = rep.data.plan;
     if (arr(p.focus_areas).length)
-      html += `<p class="muted" style="margin-bottom:10px;font-size:13px">Focus: ${p.focus_areas.map(esc).join(' · ')}</p>`;
+      html += `<p class="muted" style="margin-bottom:10px;font-size:13px">Focus: ${p.focus_areas.map(esc).join(' \u00b7 ')}</p>`;
     if (arr(p.goals).length) {
       html += `<ul class="plain">` + p.goals.map((g, i) => `
         <li class="goal-row">
@@ -777,11 +797,46 @@ function planCard(rep) {
     }
     if (arr(p.priorities).length)
       html += `<label class="head" style="margin-top:12px">Priorities</label><ul class="plain sugg">${p.priorities.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+    if (p.edited) html += `<p class="ts">Edited ${esc(fmtDate(p.edited))}</p>`;
   } else {
     html += `<p class="empty">Run a weekly review to get a proposed plan.</p>`;
   }
   d.innerHTML = html;
   return d;
+}
+
+/** Copies what is typed in the plan editor into the draft, so adding or removing a line never loses text. */
+function readPlanDraft() {
+  if (!PLAN_EDIT || !$('ppText')) return;
+  PLAN_EDIT.goals = PLAN_EDIT.goals.map(g => ({
+    key: g.key,
+    title: $('pgt_' + g.key) ? $('pgt_' + g.key).value : g.title,
+    priority: $('pgp_' + g.key) ? $('pgp_' + g.key).value : g.priority,
+    rationale: $('pgr_' + g.key) ? $('pgr_' + g.key).value : g.rationale
+  }));
+  PLAN_EDIT.priorities = $('ppText').value;
+  PLAN_EDIT.focus = $('pfText').value;
+}
+
+function planSaveNow() {
+  readPlanDraft();
+  const e = PLAN_EDIT;
+  if (!e) return;
+  if (e.goals.some(g => !g.title.trim())) { toast('Every suggested goal needs a title (or remove it).', 'error'); return; }
+  const plan = {
+    goals: e.goals.map(g => ({ title: g.title.trim(), priority: pri(g.priority), rationale: g.rationale.trim() })),
+    priorities: e.priorities.split('\n').map(x => x.trim()).filter(Boolean),
+    focus_areas: e.focus.split(',').map(x => x.trim()).filter(Boolean)
+  };
+  request('Saving the plan', 'updatePlan', { plan })
+    .then(({ res }) => {
+      if (STATE && res && res.report) { STATE.weeklyReport = res.report; saveCache(); }
+      PLAN_EDIT = null;
+      toast('Plan saved.');
+      if (STATE) render();
+    })
+    .catch(err => { toast(err.message, 'error'); if (isAuthError(err)) fail(err); })
+    .finally(() => { if (pending === 0) setStatus('Ready', 'ok'); });
 }
 
 // Time on a log entry is optional and in quarter-hours (blank = not recorded), up to eight hours.
@@ -882,7 +937,7 @@ const HANDLERS = {
   },
   useDemo:    () => { Api.setConfig({ mode: 'demo' }); resetSession(); $('settings').close(); boot(); },
   disconnect: () => { Api.setConfig({}); clearCaches(); resetSession(); $('settings').close(); showConnect(); },
-  refresh:    () => { if (Api.isConfigured()) { needsResync = false; load(); } },
+  refresh:    () => { if (Api.isConfigured()) { needsResync = false; load(); if (typeof invalidateLog === 'function') invalidateLog(); } },
 
   filterTag:  d => { TAG_FILTER = d.tag && TAG_FILTER !== d.tag ? d.tag : null; if (STATE) render(); },
   toggleChildForm: d => {
@@ -898,13 +953,14 @@ const HANDLERS = {
   undo:       () => { const fn = undoFn; hideUndo(); if (fn) fn(); },
 
   editGoal:   d => { EDITING = d.id; if (STATE) render(); const t = $('egt_' + d.id); if (t) { t.focus(); t.select(); } },
-  cancelEdit: () => { EDITING = null; if (STATE) render(); },
+  cancelEdit: () => { EDITING = null; if (typeof LOG_EDITING !== 'undefined') LOG_EDITING = null; if (STATE) render(); },
   saveGoal:   d => saveGoalEdit(d.id),
   clearDue:   d => { const el = $('egd_' + d.id); if (el) el.value = ''; },
   updateApp:    () => runUpdate('update'),
   rollbackApp:  () => { if (confirm('Go back to the earlier version of the script? Your goals and settings are not touched.')) runUpdate('rollback'); },
   dismissNotice: d => {
     if (d.kind === 'key') keyNoticeDismissed = true;
+    else if (d.kind === 'review') reviewNoticeDismissed = true;
     else { forceUpdateNotice = false; try { localStorage.setItem(DISMISS_KEY, EXPECTED_BACKEND); } catch (_) { /* shows again next visit */ } }
     renderNotices();
   },
@@ -925,6 +981,17 @@ const HANDLERS = {
     OPEN_DETAILS.add('s:' + d.id);
     addGoalNow({ title, priority, tags, parentId: d.id });
   },
+  planEdit: () => {
+    const p = STATE && STATE.weeklyReport && STATE.weeklyReport.data && STATE.weeklyReport.data.plan;
+    if (!p) return;
+    PLAN_EDIT = { goals: arr(p.goals).map(planDraftGoal), priorities: arr(p.priorities).join('\n'), focus: arr(p.focus_areas).join(', ') };
+    render();
+    if (PLAN_EDIT.goals[0] && $('pgt_' + PLAN_EDIT.goals[0].key)) $('pgt_' + PLAN_EDIT.goals[0].key).focus();
+  },
+  planAddGoal: () => { readPlanDraft(); if (PLAN_EDIT && PLAN_EDIT.goals.length < 10) { const g = planDraftGoal({}); PLAN_EDIT.goals.push(g); render(); const t = $('pgt_' + g.key); if (t) t.focus(); } },
+  planDrop: d => { readPlanDraft(); if (PLAN_EDIT) { PLAN_EDIT.goals = PLAN_EDIT.goals.filter(g => String(g.key) !== String(d.key)); render(); } },
+  planSave: () => planSaveNow(),
+  planCancel: () => { PLAN_EDIT = null; if (STATE) render(); },
   acceptGoal: d => {
     const g = arr(STATE && STATE.weeklyReport && STATE.weeklyReport.data && STATE.weeklyReport.data.plan && STATE.weeklyReport.data.plan.goals)[Number(d.idx)];
     if (g) addGoalNow({ title: String(g.title || ''), priority: g.priority, tags: '' });
@@ -953,6 +1020,7 @@ const HANDLERS = {
       onOk: res => {
         if (res && res.streak != null && STATE) { STATE.streak = res.streak; updateStreak(res.streak); }
         if (res && res.weekMinutes != null && STATE) { STATE.weekMinutes = res.weekMinutes; updateWeekChip(res.weekMinutes); }
+        if (res && res.entry && typeof logAdded === 'function') logAdded(res.entry);
         toast(minutes ? 'Logged ' + fmtMinutes(minutes) + '.' : 'Logged.');
       },
       onFail: () => {   // put the text back so nothing typed is lost
@@ -1442,7 +1510,32 @@ function renderVersionLine() {
   p.innerHTML = html;
 }
 
+/** The Housekeeping section: how long removed things are kept, and the completed-goals tidy-up. */
+function renderHousekeepForm() {
+  const hk = STATE && STATE.housekeeping;
+  if (hk) $('purgeDays').value = String(hk.purgeDays);
+  $('purgeDays').disabled = !hk;
+  $('tidyLine').textContent = !hk ? 'Connect first.' : hk.reviewCount
+    ? `${hk.reviewCount} completed ${hk.reviewCount === 1 ? 'goal is' : 'goals are'} ready to review. Last tidy-up: ${fmtDate(hk.lastReview)}.`
+    : `No completed goals are ready to review yet. Last tidy-up: ${fmtDate(hk.lastReview)}.`;
+  $('reviewNowBtn').disabled = !hk || !hk.reviewCount;
+  paneMsg('housekeepMsg', '');
+}
+
+function saveHousekeepNow() {
+  if (!Api.isConfigured()) return paneMsg('housekeepMsg', 'Connect first.', 'err');
+  paneMsg('housekeepMsg', 'Saving\u2026');
+  request('Saving', 'saveHousekeeping', { purgeDays: Number($('purgeDays').value) })
+    .then(({ res }) => {
+      if (STATE && res && res.housekeeping) { STATE.housekeeping = res.housekeeping; saveCache(); }
+      paneMsg('housekeepMsg', 'Saved. Removed items are deleted for good after ' + Number($('purgeDays').value) + ' days.', 'good');
+      if (pending === 0) setStatus('Ready', 'ok');
+    })
+    .catch(err => { paneMsg('housekeepMsg', err.message, 'err'); if (isAuthError(err)) fail(err); else if (pending === 0) setStatus('Ready', 'ok'); });
+}
+
 function openSettings(message, kind) {
+  renderHousekeepForm();
   syncLookForm();
   lookMsg('');
   renderNotifyForm();
@@ -1515,6 +1608,8 @@ function setTokenVisible(show) {
 
 function resetSession() {
   STATE = null;
+  if (typeof resetHistory === 'function') resetHistory();
+  PLAN_EDIT = null;
   fromCache = false;
   forceUpdateNotice = false;
   EDITING = null;
@@ -1586,6 +1681,7 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('DOMContentLoaded', () => {
   $('chatForm').addEventListener('submit', sendChat);
   $('voiceText').addEventListener('input', updateVoiceCount);
+  $('purgeDays').addEventListener('change', saveHousekeepNow);
   buildVoiceForm();
   buildLookForm();
   syncLookForm();

@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.10.11';
-  const RELEASE = '1.2';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.10.12';
+  const RELEASE = '1.4';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -20,11 +20,13 @@ const Mock = (() => {
   function seed() {
     return {
       goals: [
-        { id: '1', title: 'Learn Python fundamentals', priority: 'high', status: 'active', created: iso(20), tags: ['PYTHON', 'LEARNING'], parentId: '', due: iso(-9) },
-        { id: '2', title: 'Finish the data structures course', priority: 'medium', status: 'active', created: iso(18), tags: ['LEARNING'], parentId: '1', due: iso(-2) },
-        { id: '3', title: 'Read one technical book a month', priority: 'low', status: 'active', created: iso(30), tags: ['READING'], parentId: '', due: iso(1) },
-        { id: '4', title: 'Set up a home lab', priority: 'medium', status: 'postponed', created: iso(40), tags: ['HOMELAB'], parentId: '', due: '' },
-        { id: '5', title: 'Ship a first small project', priority: 'high', status: 'completed', created: iso(50), tags: ['PYTHON'], parentId: '', due: '' }
+        { id: '1', title: 'Learn Python fundamentals', priority: 'high', status: 'active', created: iso(20), tags: ['PYTHON', 'LEARNING'], parentId: '', due: iso(-9), since: '', kept: false },
+        { id: '2', title: 'Finish the data structures course', priority: 'medium', status: 'active', created: iso(18), tags: ['LEARNING'], parentId: '1', due: iso(-2), since: '', kept: false },
+        { id: '3', title: 'Read one technical book a month', priority: 'low', status: 'active', created: iso(30), tags: ['READING'], parentId: '', due: iso(1), since: '', kept: false },
+        { id: '4', title: 'Set up a home lab', priority: 'medium', status: 'postponed', created: iso(40), tags: ['HOMELAB'], parentId: '', due: '', since: iso(30), kept: false },
+        { id: '5', title: 'Ship a first small project', priority: 'high', status: 'completed', created: iso(50), tags: ['PYTHON'], parentId: '', due: '', since: iso(40), kept: false },
+        { id: '6', title: 'Tidy the desk', priority: 'low', status: 'completed', created: iso(70), tags: ['HOME'], parentId: '', due: '', since: iso(66), kept: false },
+        { id: '7', title: 'Plan the summer trip', priority: 'low', status: 'completed', created: iso(95), tags: ['HOME'], parentId: '', due: '', since: iso(92), kept: false }
       ],
       tasks: [
         { id: '1', goalId: '1', title: 'Work through chapters 1–3', status: 'done', created: iso(15) },
@@ -32,10 +34,14 @@ const Mock = (() => {
         { id: '3', goalId: '2', title: 'Implement a linked list', status: 'active', created: iso(7) }
       ],
       journal: [
-        { date: iso(0), text: 'Read two chapters on dictionaries and sets.', tags: ['PYTHON'], minutes: 45 },
-        { date: iso(1), text: 'Solved three practice problems.', tags: ['LEARNING'], minutes: 30 },
-        { date: iso(2), text: 'Started the linked list exercise.', tags: ['LEARNING'], minutes: 0 }
+        { id: '1', date: iso(0), text: 'Read two chapters on dictionaries and sets.', tags: ['PYTHON'], minutes: 45, removed: '' },
+        { id: '2', date: iso(1), text: 'Solved three practice problems.', tags: ['LEARNING'], minutes: 30, removed: '' },
+        { id: '3', date: iso(2), text: 'Started the linked list exercise.', tags: ['LEARNING'], minutes: 0, removed: '' },
+        { id: '4', date: iso(9), text: 'Watched a talk about testing.', tags: ['LEARNING'], minutes: 60, removed: '' },
+        { id: '5', date: iso(20), text: 'Tried a first script with files.', tags: ['PYTHON'], minutes: 90, removed: '' },
+        { id: '6', date: iso(45), text: 'Set up a learning plan and picked a first course.', tags: ['PLANNING'], minutes: 30, removed: '' }
       ],
+      housekeeping: { purgeDays: 30, lastReview: iso(95) },
       coachVoice: '',
       feedback: [{ date: iso(3), text: 'Be more concrete about next steps.' }],
       history: [
@@ -61,7 +67,9 @@ const Mock = (() => {
       if (s && s.goals) {   // older saved demos predate the email settings, deadlines, time and the coach voice
         s.notify = s.notify || seed().notify;
         s.coachVoice = s.coachVoice || '';
-        s.goals.forEach(g => { if (g.due == null) g.due = ''; });
+        s.goals.forEach(g => { if (g.due == null) g.due = ''; if (g.since == null) g.since = g.status === 'active' ? '' : iso(0); if (g.kept == null) g.kept = false; });
+        s.journal.forEach((j, i) => { if (!j.id) j.id = String(i + 1); if (j.removed == null) j.removed = ''; });
+        s.housekeeping = s.housekeeping || { purgeDays: 30, lastReview: iso(0) };
         return s;
       }
     } catch (_) { /* fall through */ }
@@ -70,8 +78,10 @@ const Mock = (() => {
   function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (_) { /* memory only */ } }
   function nextId(list) { return String(list.reduce((m, x) => Math.max(m, parseInt(x.id, 10) || 0), 0) + 1); }
 
+  const visible = () => db.journal.filter(j => !j.removed);
+
   function streak() {
-    const days = new Set(db.journal.map(j => j.date));
+    const days = new Set(visible().map(j => j.date));
     let n = 0, off = days.has(iso(0)) ? 0 : 1;
     while (n < 365 && days.has(iso(off + n))) n++;
     return n;
@@ -91,6 +101,7 @@ const Mock = (() => {
       weekMinutes: weekMinutes(),
       coachVoice: db.coachVoice || '',
       appearance: db.appearance || null,
+      housekeeping: housekeeping(),
       notify: notifyView(),
       role: 'master',
       hasKey: true,
@@ -102,7 +113,7 @@ const Mock = (() => {
 
   // Last seven days including today, like the backend.
   function weekMinutes() {
-    return db.journal.filter(j => j.date >= iso(6)).reduce((s, j) => s + (Number(j.minutes) || 0), 0);
+    return visible().filter(j => j.date >= iso(6)).reduce((s, j) => s + (Number(j.minutes) || 0), 0);
   }
 
   // Same checks as backend/Sheets.js, so the demo refuses what the real thing refuses.
@@ -148,7 +159,7 @@ const Mock = (() => {
     const parent = a.parentId ? String(a.parentId) : '';
     if (parent && !db.goals.some(g => g.id === parent)) { const e = new Error('The parent goal does not exist.'); e.code = 'not_found'; throw e; }
     const goal = { id: nextId(db.goals), title, priority: PRI[a.priority] != null ? a.priority : 'medium', status: 'active',
-      created: iso(0), tags: tags(a.tags), parentId: parent, due: cleanDue(a.due) };
+      created: iso(0), tags: tags(a.tags), parentId: parent, due: cleanDue(a.due), since: '', kept: false };
     db.goals.push(goal);
     return { ...goal };
   }
@@ -169,11 +180,95 @@ const Mock = (() => {
     const item = list.find(x => x.id === String(a.id));
     if (!item) { const e = new Error('Not found.'); e.code = 'not_found'; throw e; }
     item.status = a.status;
+    if ('since' in item || list === db.goals) { item.since = a.status === 'active' ? '' : iso(0); item.kept = false; }
   }
   function logActivity(a) {
     const text = clip(a.text, 2000);
     need(text, 'Nothing to log.');
-    db.journal.push({ date: iso(0), text, tags: tags(a.tags), minutes: cleanMinutes(a.minutes) });
+    const entry = { id: nextId(db.journal), date: iso(0), text, tags: tags(a.tags), minutes: cleanMinutes(a.minutes), removed: '' };
+    db.journal.push(entry);
+    return { id: entry.id, date: entry.date, text: entry.text, tags: entry.tags, minutes: entry.minutes };
+  }
+
+  // ---- the log, hiding, the tidy-up and the plan: same checks as backend/Log.js and backend/Tidy.js ----
+  const notFound = msg => { const e = new Error(msg); e.code = 'not_found'; return e; };
+  const entryView = j => ({ id: j.id, date: j.date, text: j.text, tags: j.tags, minutes: Number(j.minutes) || 0 });
+  const cleanSteps = { 14: 1, 30: 1 };
+  const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY);
+
+  function getLog(a) {
+    const days = Math.max(1, Math.min(Number(a && a.days) || 30, 3650));
+    const cutoff = iso(days);
+    const vis = visible();
+    const inWin = vis.filter(j => j.date >= cutoff).map(entryView).sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : Number(y.id) - Number(x.id)));
+    return { entries: inWin.slice(0, 500), days, more: vis.length > inWin.length || inWin.length > 500 };
+  }
+  function updateLog(a) {
+    const j = db.journal.find(x => x.id === String(a.id));
+    if (!j || j.removed) throw notFound(j ? 'That entry was removed.' : 'That entry was not found.');
+    const f = a.fields || {}, has = k => Object.prototype.hasOwnProperty.call(f, k);
+    const next = {};
+    if (has('text')) { next.text = clip(f.text, 2000); need(next.text, 'An entry needs some text.'); }
+    if (has('tags')) next.tags = tags(f.tags);
+    if (has('minutes')) next.minutes = cleanMinutes(f.minutes);
+    Object.assign(j, next);
+    return { entry: entryView(j), streak: streak(), weekMinutes: weekMinutes() };
+  }
+  function removeLog(a) {
+    const j = db.journal.find(x => x.id === String(a.id));
+    if (!j) throw notFound('That entry was not found.');
+    j.removed = iso(0);
+    return { id: j.id, streak: streak(), weekMinutes: weekMinutes() };
+  }
+  function restoreLog(a) {
+    const j = db.journal.find(x => x.id === String(a.id));
+    if (!j) throw notFound('That entry is gone for good, so it cannot be brought back.');
+    j.removed = '';
+    return { entry: entryView(j), streak: streak(), weekMinutes: weekMinutes() };
+  }
+
+  function candidates() {
+    const cutoff = iso(30);
+    return db.goals.filter(g => g.status === 'completed' && !g.kept && g.since && g.since <= cutoff);
+  }
+  function housekeeping() {
+    const hk = db.housekeeping, n = candidates().length;
+    return { purgeDays: hk.purgeDays, lastReview: hk.lastReview, reviewCount: n, reviewDue: n > 0 && daysBetween(hk.lastReview, iso(0)) >= 90 };
+  }
+  function getReview() {
+    const goals = candidates().map(g => {
+      const days = daysBetween(g.created, g.since);
+      const tasks = db.tasks.filter(t => t.goalId === g.id && t.status !== 'removed').length, children = db.goals.filter(x => x.parentId === g.id).length;
+      const small = g.priority !== 'high' && days <= 14 && children === 0 && tasks <= 2;
+      return { id: g.id, title: g.title, priority: g.priority, tags: g.tags, created: g.created, completed: g.since, days, tasks, children, suggest: small ? 'remove' : 'keep' };
+    });
+    return { goals, lastReview: db.housekeeping.lastReview, due: housekeeping().reviewDue };
+  }
+  function applyReview(a) {
+    const ids = v => { if (v == null) return []; need(Array.isArray(v) && v.length <= 500 && v.every(x => typeof x === 'string' || typeof x === 'number'), 'The review choices were not understood.'); return v.map(String); };
+    const keep = ids(a.keep), remove = ids(a.remove);
+    need(!keep.some(k => remove.includes(k)), 'A goal cannot be both kept and removed.');
+    const done = new Set(db.goals.filter(g => g.status === 'completed').map(g => g.id));
+    if (keep.concat(remove).some(x => !done.has(x))) throw notFound('One of those goals is no longer in the completed list. Reload and try again.');
+    db.goals.forEach(g => { if (keep.includes(g.id)) g.kept = true; });
+    const gone = new Set(remove);
+    const tasksDeleted = db.tasks.filter(t => gone.has(t.goalId)).length;
+    db.tasks = db.tasks.filter(t => !gone.has(t.goalId));
+    db.goals.forEach(g => { if (gone.has(g.parentId)) g.parentId = ''; });
+    db.goals = db.goals.filter(g => !gone.has(g.id));
+    db.housekeeping.lastReview = iso(0);
+    return { result: { kept: keep.length, removed: remove.length, tasksDeleted, lastReview: iso(0) }, housekeeping: housekeeping() };
+  }
+  function updatePlan(a) {
+    need(db.reports.weekly, 'There is no weekly review to edit yet. Run a weekly review first.');
+    const p = a && a.plan;
+    need(p && typeof p === 'object' && !Array.isArray(p), 'That plan is not valid.');
+    const list = (v, max, what) => { if (v == null) return []; need(Array.isArray(v) && v.length <= max, 'A plan can have up to ' + max + ' ' + what + '.'); return v; };
+    const goals = list(p.goals, 10, 'suggested goals').map(g => { need(g && typeof g === 'object', 'A suggested goal was not understood.'); const title = clip(g.title, 200); need(title, 'A suggested goal needs a title.'); return { title, priority: PRI[g.priority] != null ? g.priority : 'medium', rationale: clip(g.rationale, 300) }; });
+    const text = max => x => { need(typeof x === 'string', 'A plan line was not understood.'); return clip(x, max); };
+    const plan = { goals, priorities: list(p.priorities, 10, 'priorities').map(text(200)).filter(Boolean), focus_areas: list(p.focus_areas, 10, 'focus areas').map(text(100)).filter(Boolean), edited: iso(0) };
+    db.reports.weekly.data.plan = plan;
+    return { report: db.reports.weekly };
   }
 
   function runDaily() {
@@ -260,7 +355,18 @@ const Mock = (() => {
         return { task: { ...task } };
       }
       case 'setTaskStatus':  setStatus(db.tasks, a, ['active', 'done', 'removed']); save(); return { ok: true };
-      case 'logActivity':    logActivity(a); save(); return { streak: streak(), weekMinutes: weekMinutes() };
+      case 'logActivity':    { const entry = logActivity(a); save(); return { entry, streak: streak(), weekMinutes: weekMinutes() }; }
+      case 'getLog':         return getLog(a);
+      case 'updateLog':      { const r = updateLog(a); save(); return r; }
+      case 'removeLog':      { const r = removeLog(a); save(); return r; }
+      case 'restoreLog':     { const r = restoreLog(a); save(); return r; }
+      case 'saveHousekeeping': {
+        if (a.purgeDays != null) { need(typeof a.purgeDays === 'number' || (typeof a.purgeDays === 'string' && /^\s*\d+\s*$/.test(a.purgeDays)), 'Removed items can be kept for 14 or 30 days.'); need(cleanSteps[Number(a.purgeDays)], 'Removed items can be kept for 14 or 30 days.'); db.housekeeping.purgeDays = Number(a.purgeDays); save(); }
+        return { housekeeping: housekeeping() };
+      }
+      case 'getReview':      return getReview();
+      case 'applyReview':    { const r = applyReview(a); save(); return r; }
+      case 'updatePlan':     { const r = updatePlan(a); save(); return r; }
       case 'submitFeedback': need(clip(a.text, 2000), 'Nothing to send.'); db.feedback.push({ date: iso(0), text: clip(a.text, 2000) }); save(); return { ok: true };
       case 'saveNotifications': db.notify = cleanNotify(a); save(); return { notify: notifyView() };
       case 'sendTestEmail':  return { sent: true, to: 'you@example.com', demo: true };

@@ -14,7 +14,7 @@
 // The one place an update is ever downloaded from. It is a constant on purpose: nothing a caller
 // sends can change it.
 const LB_UPDATE_URL = 'https://optimusprimarch.github.io/learnerbot/backend-payload.js';
-const LB_BUILTIN_VERSION = '2026.10.11';
+const LB_BUILTIN_VERSION = '2026.10.12';
 const LB_ENTRIES = ["doGet","doPost","onOpen","menuSetGroqKey","menuShowConnection","menuResetToken","menuEmailsOff","_dailyJob","_weeklyJob","_nudgeJob"];
 const LB_CHUNK = 7000;            // characters per property (a property holds about 9 KB; the app text is plain ASCII)
 const LB_MIN_SIZE = 20000;        // a real app is never smaller than this...
@@ -566,9 +566,23 @@ const ACTIONS = {
     return { ok: true };
   },
   logActivity: a => {
-    addJournalEntry(a.text, a.tags, a.minutes);
-    return { streak: getStreak(), weekMinutes: weekMinutes() };
+    const entry = addJournalEntry(a.text, a.tags, a.minutes);
+    maybePurge();
+    return { entry: entry, streak: getStreak(), weekMinutes: weekMinutes() };
   },
+
+  // Looking back at the log (shown in History), and changing it. Removing only hides an entry.
+  getLog:     a => getLog(a),
+  updateLog:  a => ({ entry: updateLog(a.id, a.fields), streak: getStreak(), weekMinutes: weekMinutes() }),
+  removeLog:  a => removeLog(a.id),
+  restoreLog: a => restoreLog(a.id),
+
+  // Keeping the sheet light, and the quarterly review of completed goals.
+  saveHousekeeping: a => ({ housekeeping: saveHousekeeping(a) }),
+  getReview:   () => getReview(),
+  applyReview: a => ({ result: applyReview(a), housekeeping: getHousekeeping() }),
+
+  updatePlan: a => updatePlan(a),
   submitFeedback: a => {
     addFeedback(a.text);
     return { ok: true };
@@ -612,6 +626,7 @@ function getState() {
     weekMinutes:    safe('minutes',  weekMinutes,                      0),
     coachVoice:     safe('voice',    getCoachVoice,                    ''),
     appearance:     safe('look',     getAppearance,                    null),
+    housekeeping:   safe('tidy',     getHousekeeping,                  null),
     notify:         safe('notify',   _notifyView,                      null),
     role:           _role,
     hasKey:         _hasKey(),
@@ -659,6 +674,9 @@ function _ensureHeaders() {
   const key = 'h_ok_' + APP_VERSION;
   if (cache.get(key)) return;
   initHeaders();
+  // Goals and tasks completed or removed before status dates existed start counting from today. A problem here
+  // must never stop the request that triggered it.
+  try { backfillStatusDates(); } catch (e) { Logger.log('Status dates not filled in: ' + (e && e.message ? e.message : e)); }
   cache.put(key, '1', 3600);
 }
 
@@ -672,8 +690,8 @@ function _ensureHeaders() {
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.2';
-const APP_VERSION = '2026.10.11';
+const APP_RELEASE = '1.4';
+const APP_VERSION = '2026.10.12';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800 };
@@ -980,6 +998,159 @@ function callGroq(messages) {
 }
 
 // ============================================================
+// Log.js
+// ============================================================
+// ============================================================
+// Log.js \u2014 looking back at, editing and removing journal entries
+//
+// Entries used to be write-only. Each one now has an id and a status, so it can be listed, changed or
+// removed. Removing hides an entry (it stays in the sheet, out of sight, and the person can bring it back
+// for a moment with Undo); Tidy.js deletes hidden entries for good after the keep-for period.
+// ============================================================
+
+const LOG_MAX_ENTRIES = 500;     // most entries sent in one answer
+const LOG_READ_ROWS = 5000;      // most rows looked at in one request
+
+/**
+ * Gives every entry that has no id one (oldest first), so any entry can be named later. Entries written by
+ * older versions have none. The first call on a sheet writes them; afterwards it is remembered for six hours
+ * and costs nothing.
+ */
+function ensureJournalIds() {
+  const cache = CacheService.getScriptCache();
+  if (cache.get('jids_ok')) return 0;
+  const sh = getSheet('Journal');
+  const last = sh.getLastRow();
+  let added = 0;
+  if (last >= 2) {
+    added = withLock(() => {
+      const rng = sh.getRange(2, 5, last - 1, 1);
+      const ids = _timeIt('read', () => rng.getValues());
+      let max = ids.reduce((m, r) => Math.max(m, parseInt(r[0], 10) || 0), 0), n = 0;
+      const out = ids.map(r => { if (r[0] !== '' && r[0] != null) return [String(r[0])]; n++; return [String(++max)]; });
+      if (n) {
+        _timeIt('write', () => { rng.setNumberFormat('@'); rng.setValues(out); });
+        _invalidate('Journal');
+      }
+      return n;
+    });
+  }
+  cache.put('jids_ok', '1', 21600);
+  return added;
+}
+
+/** The next entry id: one more than the largest in the ID column. */
+function _nextJournalId() {
+  const sh = getSheet('Journal');
+  return _timeIt('read', () => {
+    const last = sh.getLastRow();
+    if (last < 2) return 1;
+    return sh.getRange(2, 5, last - 1, 1).getValues().reduce((m, r) => Math.max(m, parseInt(r[0], 10) || 0), 0) + 1;
+  });
+}
+
+/** The 1-based sheet row of an entry (hidden ones included), or 0 when there is none. */
+function _journalRowNumber(id) {
+  const sh = getSheet('Journal');
+  const last = sh.getLastRow();
+  if (last < 2) return 0;
+  const ids = _timeIt('read', () => sh.getRange(2, 5, last - 1, 1).getValues());
+  const k = ids.findIndex(r => String(r[0]) === String(id));
+  return k < 0 ? 0 : k + 2;
+}
+
+function _logEntry(r) {
+  return { id: String(r[4]), date: _day(r[0]).slice(0, 10), text: String(r[1]), tags: _parseTags(r[2]), minutes: _minutes(r[3]) };
+}
+
+/**
+ * The person's own log, newest first. `days` (default 30) says how far back to look; `more` is true when
+ * older entries exist beyond that, so the page can offer "Show older".
+ */
+function getLog(args) {
+  args = args || {};
+  const days = Math.max(1, Math.min(Number(args.days) || 30, 3650));
+  ensureJournalIds();
+  const cutoff = _daysAgo(days);
+  const visible = _visibleJournal(LOG_READ_ROWS).filter(r => r[1] && r[4] !== '' && r[4] != null);
+  const inWindow = visible.filter(r => _day(r[0]) >= cutoff).map(_logEntry);
+  inWindow.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : Number(b.id) - Number(a.id)));
+  const older = visible.length > inWindow.length || getSheet('Journal').getLastRow() - 1 > LOG_READ_ROWS;
+  const entries = inWindow.slice(0, LOG_MAX_ENTRIES);
+  return { entries: entries, days: days, more: older || inWindow.length > entries.length };
+}
+
+/** Changes the text, tags and/or time of an entry; only the fields present in `f` change. */
+function updateLog(id, f) {
+  f = f || {};
+  const has = k => Object.prototype.hasOwnProperty.call(f, k);
+  const next = {};
+  if (has('text')) { next.text = _clip(f.text, LIMITS.text); if (!next.text) throw _err('bad_request', 'An entry needs some text.'); }
+  if (has('tags')) next.tags = _tagString(f.tags);
+  if (has('minutes')) next.minutes = _cleanMinutes(f.minutes);
+  ensureJournalIds();
+  return withLock(() => {
+    const at = _journalRowNumber(id);
+    if (!at) throw _err('not_found', 'That entry was not found.');
+    const sh = getSheet('Journal');
+    const row = _timeIt('read', () => sh.getRange(at, 1, 1, 7).getValues()[0]);
+    if (row[5] === 'removed') throw _err('not_found', 'That entry was removed.');
+    if ('text' in next) row[1] = next.text;
+    if ('tags' in next) row[2] = next.tags;
+    if ('minutes' in next) row[3] = next.minutes;
+    _timeIt('write', () => {
+      const rng = sh.getRange(at, 2, 1, 3);
+      rng.setNumberFormat('@');
+      rng.setValues([[_cell(row[1]), _cell(row[2]), _cell(row[3])]]);
+    });
+    _invalidate('Journal');
+    return _logEntry(row);
+  });
+}
+
+/** Hides an entry (it is deleted for good later). Answers with the chips the page shows. */
+function removeLog(id) {
+  ensureJournalIds();
+  const out = withLock(() => {
+    const at = _journalRowNumber(id);
+    if (!at) throw _err('not_found', 'That entry was not found.');
+    _timeIt('write', () => {
+      const rng = getSheet('Journal').getRange(at, 6, 1, 2);
+      rng.setNumberFormat('@');
+      rng.setValues([['removed', _today()]]);
+    });
+    _invalidate('Journal');
+    return { id: String(id) };
+  });
+  out.streak = getStreak();
+  out.weekMinutes = weekMinutes();
+  maybePurge();
+  return out;
+}
+
+/** Brings a hidden entry back (Undo). It cannot come back once it has been deleted for good. */
+function restoreLog(id) {
+  ensureJournalIds();
+  const out = withLock(() => {
+    const at = _journalRowNumber(id);
+    if (!at) throw _err('not_found', 'That entry is gone for good, so it cannot be brought back.');
+    const sh = getSheet('Journal');
+    const row = _timeIt('read', () => sh.getRange(at, 1, 1, 7).getValues()[0]);
+    _timeIt('write', () => {
+      const rng = sh.getRange(at, 6, 1, 2);
+      rng.setNumberFormat('@');
+      rng.setValues([['', '']]);
+    });
+    row[5] = '';
+    _invalidate('Journal');
+    return { entry: _logEntry(row) };
+  });
+  out.streak = getStreak();
+  out.weekMinutes = weekMinutes();
+  return out;
+}
+
+// ============================================================
 // Notify.js
 // ============================================================
 // ============================================================
@@ -1112,7 +1283,7 @@ function _logJobError(job, e) {
 
 function _loggedToday() {
   const today = _today();
-  return rows('Journal', JOURNAL_TAIL).some(r => r[1] && _day(r[0]).slice(0, 10) === today);
+  return _visibleJournal(JOURNAL_TAIL).some(r => r[1] && _day(r[0]).slice(0, 10) === today);
 }
 
 // ---- Test email ---------------------------------------------
@@ -1363,12 +1534,12 @@ function redeemPairing(a) {
 // New columns are only ever added at the end, and initHeaders() adds a missing header to an existing
 // sheet, so older sheets pick them up on the first request after an update.
 const TABS = {
-  Goals:    ['ID', 'Title', 'Priority', 'Status', 'Created', 'Tags', 'ParentID', 'Due'],
-  Journal:  ['Date', 'Text', 'Tags', 'Minutes'],
+  Goals:    ['ID', 'Title', 'Priority', 'Status', 'Created', 'Tags', 'ParentID', 'Due', 'StatusDate', 'Reviewed'],
+  Journal:  ['Date', 'Text', 'Tags', 'Minutes', 'ID', 'Status', 'Removed'],
   Reports:  ['Date', 'Type', 'Data', 'Score'],
   Feedback: ['Date', 'Text'],
   History:  ['Week', 'Score', 'Summary'],
-  Tasks:    ['ID', 'GoalID', 'Title', 'Status', 'Created'],
+  Tasks:    ['ID', 'GoalID', 'Title', 'Status', 'Created', 'StatusDate'],
   Chat:     ['Timestamp', 'Role', 'Text'],
   Settings: ['Key', 'Value']
 };
@@ -1478,6 +1649,36 @@ function _appendRow(name, row) {
   _invalidate(name);
 }
 
+/** A cell as plain text (real Date cells from older sheets become yyyy-mm-dd). */
+function _cell(v) { return v instanceof Date ? _day(v) : String(v == null ? '' : v); }
+
+/** Writes `values` as text into one row, starting at column `col`. `i` is the row's index in rows(name). */
+function _writeSpan(name, i, col, values) {
+  _timeIt('write', () => {
+    const rng = getSheet(name).getRange(i + 2, col, 1, values.length);
+    rng.setNumberFormat('@');
+    rng.setValues([values]);
+  });
+  _invalidate(name);
+}
+
+/** Deletes whole rows (1-based sheet row numbers) in as few calls as possible, lowest block last so numbers stay valid. */
+function _deleteRowNumbers(name, rowNumbers) {
+  const sh = getSheet(name);
+  const nums = Array.from(new Set(rowNumbers)).sort((a, b) => b - a);
+  _timeIt('write', () => {
+    let i = 0;
+    while (i < nums.length) {
+      const start = nums[i];
+      let count = 1;
+      while (i + count < nums.length && nums[i + count] === start - count) count++;
+      sh.deleteRows(start - count + 1, count);
+      i += count;
+    }
+  });
+  _invalidate(name);
+}
+
 function _setCellById(name, id, col, value) {
   const i = rows(name).findIndex(r => String(r[0]) === String(id));
   if (i < 0) return false;
@@ -1569,7 +1770,10 @@ function _goal(r) {
   return {
     id: String(r[0]), title: String(r[1]), priority: String(r[2]), status: String(r[3]),
     created: _day(r[4]), tags: _parseTags(r[5]), parentId: r[6] !== '' && r[6] != null ? String(r[6]) : '',
-    due: r[7] !== '' && r[7] != null ? _day(r[7]).slice(0, 10) : ''
+    due: r[7] !== '' && r[7] != null ? _day(r[7]).slice(0, 10) : '',
+    // The day the goal last changed status (completed, postponed, removed), and whether a review chose to keep it.
+    since: r[8] !== '' && r[8] != null ? _day(r[8]).slice(0, 10) : '',
+    kept: r[9] !== '' && r[9] != null
   };
 }
 
@@ -1598,7 +1802,7 @@ function addGoal(title, priority, tags, parentId, due) {
     const tagStr = _tagString(tags);
     const created = _today();
     _appendRow('Goals', [id, t, p, 'active', created, tagStr, parent, dueDay]);
-    return { id: String(id), title: t, priority: p, status: 'active', created: created, tags: _parseTags(tagStr), parentId: parent, due: dueDay };
+    return { id: String(id), title: t, priority: p, status: 'active', created: created, tags: _parseTags(tagStr), parentId: parent, due: dueDay, since: '', kept: false };
   });
 }
 
@@ -1634,9 +1838,15 @@ function updateGoal(id, f) {
   });
 }
 
+/** Changes a goal's status and records the day, so completed and removed goals know how old they are. */
 function setGoalStatus(id, status) {
   if (GOAL_STATUSES.indexOf(status) < 0) throw _err('bad_request', 'Unknown goal status.');
-  return _setCellById('Goals', id, 4, status);
+  const i = rows('Goals').findIndex(r => String(r[0]) === String(id));
+  if (i < 0) return false;
+  const r = rows('Goals')[i];
+  // Columns 4 to 10: Status, Created, Tags, ParentID, Due, StatusDate, Reviewed (a change of status clears an earlier "kept").
+  _writeSpan('Goals', i, 4, [status, _cell(r[4]), _cell(r[5]), _cell(r[6]), _cell(r[7]), status === 'active' ? '' : _today(), '']);
+  return true;
 }
 
 // ---- Tasks --------------------------------------------------
@@ -1660,7 +1870,11 @@ function addTask(goalId, title) {
 
 function setTaskStatus(id, status) {
   if (TASK_STATUSES.indexOf(status) < 0) throw _err('bad_request', 'Unknown task status.');
-  return _setCellById('Tasks', id, 4, status);
+  const i = rows('Tasks').findIndex(r => String(r[0]) === String(id));
+  if (i < 0) return false;
+  const r = rows('Tasks')[i];
+  _writeSpan('Tasks', i, 4, [status, _cell(r[4]), status === 'active' ? '' : _today()]);   // Status, Created, StatusDate
+  return true;
 }
 
 // ---- Chat ---------------------------------------------------
@@ -1679,12 +1893,19 @@ function saveChatMessage(role, text) {
 
 const JOURNAL_TAIL = 1500;
 
-/** Logs an entry for today. `minutes` is optional (whole minutes; the page offers 15-minute steps). */
+/** Entries that have not been removed (a removed entry stays in the sheet, hidden, until it is purged). */
+function _visibleJournal(tail) { return rows('Journal', tail).filter(r => r[5] !== 'removed'); }
+
+/** Logs an entry for today and returns it. `minutes` is optional (whole minutes; the page offers 15-minute steps). */
 function addJournalEntry(text, tags, minutes) {
   const t = _clip(text, LIMITS.text);
   if (!t) throw _err('bad_request', 'Nothing to log.');
   const mins = _cleanMinutes(minutes);
-  withLock(() => _appendRow('Journal', [_today(), t, _tagString(tags), mins]));
+  return withLock(() => {
+    const id = _nextJournalId(), date = _today(), tagStr = _tagString(tags);
+    _appendRow('Journal', [date, t, tagStr, mins, id, '', '']);
+    return { id: String(id), date: date, text: t, tags: _parseTags(tagStr), minutes: mins === '' ? 0 : mins };
+  });
 }
 
 function _minutes(v) { const n = Number(v); return v !== '' && Number.isFinite(n) && n > 0 ? Math.min(Math.round(n), MAX_MINUTES) : 0; }
@@ -1692,19 +1913,19 @@ function _minutes(v) { const n = Number(v); return v !== '' && Number.isFinite(n
 /** Entries from the last `days` days (0 minutes means none was recorded). */
 function getRecentJournal(days) {
   const cutoff = _daysAgo(days || 7);
-  return rows('Journal', JOURNAL_TAIL).filter(r => r[1] && _day(r[0]) >= cutoff)
+  return _visibleJournal(JOURNAL_TAIL).filter(r => r[1] && _day(r[0]) >= cutoff)
     .map(r => ({ date: _day(r[0]), text: String(r[1]), tags: _parseTags(r[2]), minutes: _minutes(r[3]) }));
 }
 
 /** Total recorded minutes over the last 7 days, today included. */
 function weekMinutes() {
   const cutoff = _daysAgo(6);
-  return rows('Journal', JOURNAL_TAIL).filter(r => r[1] && _day(r[0]) >= cutoff)
+  return _visibleJournal(JOURNAL_TAIL).filter(r => r[1] && _day(r[0]) >= cutoff)
     .reduce((sum, r) => sum + _minutes(r[3]), 0);
 }
 
 function getStreak() {
-  const days = new Set(rows('Journal', JOURNAL_TAIL).filter(r => r[0]).map(r => _day(r[0]).slice(0, 10)));
+  const days = new Set(_visibleJournal(JOURNAL_TAIL).filter(r => r[0]).map(r => _day(r[0]).slice(0, 10)));
   if (!days.size) return 0;
   // Not having logged yet today doesn't break a streak; yesterday still counts.
   const offset = days.has(_daysAgo(0)) ? 0 : 1;
@@ -1818,6 +2039,251 @@ function getRecentHistory(n) {
   const count = n || 5;
   return rows('History', count).slice(-count).filter(r => r[0])
     .map(r => ({ week: _day(r[0]), score: r[1] === '' ? null : Number(r[1]), summary: String(r[2]) }));
+}
+
+// ============================================================
+// Tidy.js
+// ============================================================
+// ============================================================
+// Tidy.js \u2014 keeping the sheet light, and the weekly plan editable
+//
+//  * Removed things (log entries, goals, tasks) are hidden first and deleted for good after a keep-for
+//    period of 14 or 30 days. The deletion runs on an ordinary request (the first log entry or removal of
+//    the day), never from a timer.
+//  * Completed goals get a review about every quarter: keep as a record, or remove entirely. Small, quick
+//    goals are suggested for removal; big ones are suggested for keeping.
+//  * The proposed plan in the latest weekly report can be edited.
+// ============================================================
+
+const PURGE_CHOICES = [14, 30];
+const PURGE_DEFAULT = 30;
+const REVIEW_EVERY_DAYS = 90;      // how often the review is offered
+const REVIEW_MIN_AGE_DAYS = 30;    // a completed goal is ready for review once it has been done this long
+const SMALL_GOAL_DAYS = 14;        // "small": finished within this many days of being added...
+const SMALL_GOAL_TASKS = 2;        // ...with at most this many tasks, no sub-goals, and not high priority
+const PURGE_MAX_ROWS = 300;        // most rows deleted from one tab in one run
+
+// ---- the two settings -----------------------------------------
+
+function getPurgeDays() {
+  const n = parseInt(getSetting('purge_days'), 10);
+  return PURGE_CHOICES.indexOf(n) >= 0 ? n : PURGE_DEFAULT;
+}
+
+function setPurgeDays(v) {
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : NaN);
+  if (PURGE_CHOICES.indexOf(n) < 0) throw _err('bad_request', 'Removed items can be kept for ' + PURGE_CHOICES.join(' or ') + ' days.');
+  setSetting('purge_days', String(n));
+  return n;
+}
+
+/** When the last review happened. The first time it is asked, it starts from today, so nothing nags at once. */
+function getLastReview() {
+  let v = getSetting('last_review');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { v = _today(); setSetting('last_review', v); }
+  return v;
+}
+
+function _daysBetween(a, b) {
+  const x = /^(\d{4})-(\d{2})-(\d{2})/.exec(a), y = /^(\d{4})-(\d{2})-(\d{2})/.exec(b);
+  if (!x || !y) return null;
+  return Math.round((Date.UTC(+y[1], +y[2] - 1, +y[3]) - Date.UTC(+x[1], +x[2] - 1, +x[3])) / 864e5);
+}
+
+/** What Settings and History need to know: the keep-for period and whether a review is due. */
+function getHousekeeping() {
+  const last = getLastReview();
+  const count = reviewCandidates().length;
+  return { purgeDays: getPurgeDays(), lastReview: last, reviewCount: count, reviewDue: count > 0 && _daysBetween(last, _today()) >= REVIEW_EVERY_DAYS };
+}
+
+function saveHousekeeping(a) {
+  a = a || {};
+  if (a.purgeDays != null) setPurgeDays(a.purgeDays);
+  return getHousekeeping();
+}
+
+// ---- status dates: how long ago a goal or task changed status ------
+
+/** Goals and tasks that were completed, postponed or removed before dates were kept start counting from today. */
+function backfillStatusDates() {
+  const today = _today();
+  const fill = (name, col, isSet) => {
+    const data = rows(name);
+    let changed = false;
+    const out = data.map(r => {
+      const cur = r[col - 1];
+      if (r[0] !== '' && isSet(r) && (cur === '' || cur == null)) { changed = true; return [today]; }
+      return [cur === undefined || cur === null ? '' : _cell(cur)];
+    });
+    if (!changed) return;
+    withLock(() => _timeIt('write', () => {
+      const rng = getSheet(name).getRange(2, col, out.length, 1);
+      rng.setNumberFormat('@');
+      rng.setValues(out);
+    }));
+    _invalidate(name);
+  };
+  fill('Goals', 9, r => r[3] !== 'active');
+  fill('Tasks', 6, r => r[3] === 'removed' || r[3] === 'done');
+}
+
+// ---- deleting removed things for good --------------------------
+
+/** Deletes whole goals (and their tasks) by id; sub-goals of a deleted goal become top-level goals. */
+function _deleteGoals(ids) {
+  const set = new Set(ids.map(String));
+  const goalRows = rows('Goals'), taskRows = rows('Tasks');
+  const goalNums = [], taskNums = [], orphans = [];
+  goalRows.forEach((r, i) => {
+    if (set.has(String(r[0]))) goalNums.push(i + 2);
+    else if (r[6] !== '' && r[6] != null && set.has(String(r[6]))) orphans.push(i);
+  });
+  taskRows.forEach((r, i) => { if (set.has(String(r[1]))) taskNums.push(i + 2); });
+  orphans.forEach(i => {
+    _timeIt('write', () => { const c = getSheet('Goals').getRange(i + 2, 7); c.setNumberFormat('@'); c.setValue(''); });
+  });
+  if (orphans.length) _invalidate('Goals');
+  if (taskNums.length) _deleteRowNumbers('Tasks', taskNums);
+  if (goalNums.length) _deleteRowNumbers('Goals', goalNums);
+  return { goals: goalNums.length, tasks: taskNums.length };
+}
+
+/** Deletes hidden items older than the keep-for period. */
+function purgeRemoved() {
+  const cutoff = _daysAgo(getPurgeDays());
+  const old = d => { const s = _day(d).slice(0, 10); return /^\d{4}-/.test(s) && s <= cutoff; };
+  return withLock(() => {
+    const out = { journal: 0, goals: 0, tasks: 0 };
+
+    // log entries
+    const sh = getSheet('Journal'), last = sh.getLastRow();
+    if (last >= 2 && sh.getLastColumn() >= 7) {
+      const flags = _timeIt('read', () => sh.getRange(2, 6, last - 1, 2).getValues());
+      const nums = [];
+      flags.forEach((r, i) => { if (r[0] === 'removed' && r[1] !== '' && old(r[1]) && nums.length < PURGE_MAX_ROWS) nums.push(i + 2); });
+      if (nums.length) { _deleteRowNumbers('Journal', nums); out.journal = nums.length; }
+    }
+
+    // removed goals (with their tasks), then removed tasks
+    const goalIds = rows('Goals').filter(r => r[0] !== '' && r[3] === 'archived' && r[8] !== '' && r[8] != null && old(r[8])).map(r => r[0]).slice(0, PURGE_MAX_ROWS);
+    if (goalIds.length) { const d = _deleteGoals(goalIds); out.goals = d.goals; out.tasks += d.tasks; }
+    const taskNums = [];
+    rows('Tasks').forEach((r, i) => { if (r[0] !== '' && r[3] === 'removed' && r[5] !== '' && r[5] != null && old(r[5]) && taskNums.length < PURGE_MAX_ROWS) taskNums.push(i + 2); });
+    if (taskNums.length) { _deleteRowNumbers('Tasks', taskNums); out.tasks += taskNums.length; }
+    return out;
+  });
+}
+
+/** Runs the deletion at most once a day, and never lets a problem there get in the way of what was asked. */
+function maybePurge() {
+  try {
+    const cache = CacheService.getScriptCache(), key = 'purge_' + _today();
+    if (cache.get(key)) return null;
+    const out = purgeRemoved();
+    cache.put(key, '1', 21600);
+    return out;
+  } catch (e) {
+    Logger.log('Purge skipped: ' + (e && e.message ? e.message : e));
+    return null;
+  }
+}
+
+// ---- the quarterly review of completed goals -------------------
+
+/** Completed goals that have been done long enough and have not been kept in an earlier review. */
+function reviewCandidates() {
+  const cutoff = _daysAgo(REVIEW_MIN_AGE_DAYS);
+  return rows('Goals').filter(r => r[0] !== '' && r[3] === 'completed').map(_goal)
+    .filter(g => !g.kept && g.since && g.since <= cutoff);
+}
+
+function getReview() {
+  const kids = {}, taskCount = {};
+  rows('Goals').forEach(r => { if (r[6] !== '' && r[6] != null) kids[String(r[6])] = (kids[String(r[6])] || 0) + 1; });
+  rows('Tasks').forEach(r => { if (r[0] !== '' && r[3] !== 'removed') taskCount[String(r[1])] = (taskCount[String(r[1])] || 0) + 1; });
+  const goals = reviewCandidates().map(g => {
+    const days = _daysBetween(g.created, g.since);
+    const tasks = taskCount[g.id] || 0, children = kids[g.id] || 0;
+    const small = g.priority !== 'high' && days != null && days <= SMALL_GOAL_DAYS && children === 0 && tasks <= SMALL_GOAL_TASKS;
+    return { id: g.id, title: g.title, priority: g.priority, tags: g.tags, created: g.created, completed: g.since, days: days, tasks: tasks, children: children, suggest: small ? 'remove' : 'keep' };
+  });
+  const last = getLastReview();
+  return { goals: goals, lastReview: last, due: goals.length > 0 && _daysBetween(last, _today()) >= REVIEW_EVERY_DAYS };
+}
+
+/**
+ * Applies the person's choices: `keep` goals stay as a record and are not asked about again; `remove` goals
+ * are deleted for good with their tasks. Every id must be a completed goal. The review date is reset.
+ */
+function applyReview(a) {
+  a = a || {};
+  const ids = v => {
+    if (v == null) return [];
+    if (!Array.isArray(v) || v.length > 500) throw _err('bad_request', 'The review choices were not understood.');
+    return v.map(x => { if (typeof x !== 'string' && typeof x !== 'number') throw _err('bad_request', 'The review choices were not understood.'); return String(x); });
+  };
+  const keep = ids(a.keep), remove = ids(a.remove);
+  if (keep.some(k => remove.indexOf(k) >= 0)) throw _err('bad_request', 'A goal cannot be both kept and removed.');
+  const completed = new Set(rows('Goals').filter(r => r[0] !== '' && r[3] === 'completed').map(r => String(r[0])));
+  const stray = keep.concat(remove).find(x => !completed.has(x));
+  if (stray !== undefined) throw _err('not_found', 'One of those goals is no longer in the completed list. Reload and try again.');
+  return withLock(() => {
+    const today = _today();
+    const keepSet = new Set(keep);
+    rows('Goals').forEach((r, i) => {
+      if (keepSet.has(String(r[0]))) _timeIt('write', () => { const c = getSheet('Goals').getRange(i + 2, 10); c.setNumberFormat('@'); c.setValue(today); });
+    });
+    _invalidate('Goals');
+    const removed = remove.length ? _deleteGoals(remove) : { goals: 0, tasks: 0 };
+    setSetting('last_review', today);
+    return { kept: keep.length, removed: removed.goals, tasksDeleted: removed.tasks, lastReview: today };
+  });
+}
+
+// ---- editing the proposed plan ---------------------------------
+
+function _cleanPlan(p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) throw _err('bad_request', 'That plan is not valid.');
+  const list = (v, max, what) => {
+    if (v == null) return [];
+    if (!Array.isArray(v) || v.length > max) throw _err('bad_request', 'A plan can have up to ' + max + ' ' + what + '.');
+    return v;
+  };
+  const goals = list(p.goals, 10, 'suggested goals').map(g => {
+    if (!g || typeof g !== 'object') throw _err('bad_request', 'A suggested goal was not understood.');
+    const title = _clip(g.title, LIMITS.title);
+    if (!title) throw _err('bad_request', 'A suggested goal needs a title.');
+    return { title: title, priority: _priority(g.priority), rationale: _clip(g.rationale, 300) };
+  });
+  const text = (max) => x => { if (typeof x !== 'string') throw _err('bad_request', 'A plan line was not understood.'); return _clip(x, max); };
+  const priorities = list(p.priorities, 10, 'priorities').map(text(LIMITS.title)).filter(Boolean);
+  const focus = list(p.focus_areas, 10, 'focus areas').map(text(100)).filter(Boolean);
+  return { goals: goals, priorities: priorities, focus_areas: focus };
+}
+
+/** Replaces the plan in the latest weekly review. The review's own text and score are untouched. */
+function updatePlan(a) {
+  const plan = _cleanPlan(a && a.plan);
+  return withLock(() => {
+    const sh = getSheet('Reports'), last = sh.getLastRow();
+    if (last >= 2) {
+      const types = _timeIt('read', () => sh.getRange(2, 2, last - 1, 1).getValues());
+      for (let i = types.length - 1; i >= 0; i--) {
+        if (types[i][0] !== 'weekly') continue;
+        const row = _timeIt('read', () => sh.getRange(i + 2, 1, 1, 4).getValues()[0]);
+        let data;
+        try { data = JSON.parse(row[2]); } catch (_) { continue; }
+        if (!data || typeof data !== 'object') continue;
+        plan.edited = _today();
+        data.plan = plan;
+        _timeIt('write', () => { const c = sh.getRange(i + 2, 3); c.setNumberFormat('@'); c.setValue(JSON.stringify(data)); });
+        _invalidate('Reports');
+        return { report: { date: _ts(row[0]), type: 'weekly', data: data, score: row[3] } };
+      }
+    }
+    throw _err('not_found', 'There is no weekly review to edit yet. Run a weekly review first.');
+  });
 }
 
 // ---- exports (the loader reads these) ----
