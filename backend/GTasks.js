@@ -1,12 +1,12 @@
-// GTasks.js: Google Tasks that are due today (or overdue) go into The Workday's to-do list, each with a link back to the task.
+// GTasks.js: Google Tasks that are due today (or overdue) go into the to-do list, each with a link back to the task.
 //
 // Read-only, and only the sheet owner's own tasks: the sheet's script reads them with its owner's Google account through the Tasks
 // service. Google does not put tasks in a calendar's iCal link, which is why this is not part of the calendar feed.
 //
 // ONE-TIME SETUP, in the sheet: Extensions > Apps Script > Services (the + beside it) > Google Tasks API > Add. Then run anything in
-// LearnerBot once and approve Google's permission screen. Until then this does nothing and The Workday says so.
+// LearnerBot once and approve Google's permission screen. Until then this does nothing and the to-do card says so.
 //
-// A refresh runs with every planner feed (6 AM and 3 PM), at the 7 AM daily focus, and when the Refresh button on The Workday is pressed.
+// A refresh runs with every planner feed (6 AM and 3 PM), at the 7 AM daily focus, and when Refresh Google on the To do card is pressed.
 
 const GTASKS_KEY = 'gtasks_status';
 const GTASKS_MAX = 40;

@@ -5,7 +5,7 @@
 // your computer can print one combined calendar; nobody else can.
 //
 // ONE-TIME SETUP, in the sheet: Extensions > Apps Script > Services (+) > Google Calendar API > Add, then approve Google's permission screen
-// (press Refresh Google on The Workday). Until then The Workday says so and uses whatever the planner sent.
+// (press Refresh Google on the To do card). Until then Today's Look says so and uses whatever the planner sent.
 //
 // Which calendars: your main calendar and every calendar ticked in Google Calendar's left-hand list. Nothing else is filtered out: all-day
 // items, out-of-office and "free" events are kept. They are only treated differently for open time: an all-day item has no hours, and an
@@ -160,7 +160,7 @@ function _focusWindows(busy, ws, we, minFocus) {
 }
 
 /**
- * The schedule The Workday and the coach use. Outlook windows come from the planner (meta); Google windows from this script's own calendar
+ * The schedule Today's Look and the coach use. Outlook windows come from the planner (meta); Google windows from this script's own calendar
  * read. With no Google snapshot (the Calendar service is not on) it falls back to whatever the planner computed.
  */
 function _scheduleFor(meta, gcal) {
@@ -174,14 +174,16 @@ function _scheduleFor(meta, gcal) {
   };
   if (!haveG) {
     if (!plan) return null;
-    return { busy: plan.busy || [], focus: plan.focus || [], budget: plan.budget === undefined ? '' : plan.budget, allDay: plan.allDay || 0, sources: sources };
+    return { busy: plan.busy || [], busyAll: plan.busy || [], focus: plan.focus || [], budget: plan.budget === undefined ? '' : plan.budget, allDay: plan.allDay || 0, sources: sources };
   }
   const st = Object.assign({}, WORK_DEFAULTS, (plan && plan.settings) || {});
   const now = _nowMinutes();
   const ws = Math.max(_toMin(st.workStart), now), we = _toMin(st.workEnd);
   const outlook = ((plan && plan.busy) || []).filter(w => w.src !== 'Google');   // the planner's own Google windows are replaced by ours
-  const busy = outlook.concat(gcal.busy || []).filter(w => _toMin(w.end) > now).sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  const byStart = (a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
+  const busyAll = outlook.concat(gcal.busy || []).sort(byStart);          // the whole day, for the calendar view
+  const busy = busyAll.filter(w => _toMin(w.end) > now);                  // what is still ahead, for the coach
   const focus = _focusWindows(busy, ws, we, st.minFocus);
   const total = focus.reduce((s, w) => s + w.minutes, 0);
-  return { busy: busy, focus: focus, budget: Math.round(total / 60 / st.hoursPerPoint * 10) / 10, allDay: gcal.allDay || 0, sources: sources };
+  return { busy: busy, busyAll: busyAll, focus: focus, budget: Math.round(total / 60 / st.hoursPerPoint * 10) / 10, allDay: gcal.allDay || 0, sources: sources };
 }

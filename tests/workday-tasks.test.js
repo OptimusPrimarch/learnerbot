@@ -108,8 +108,8 @@ test('the coach hears Google Tasks by name, not as work item numbers', () => {
   w.ok('setTodayFeed', feed());
   w.ok('runDaily');
   const user = w.groqCalls.at(-1).messages[1].content;
-  assert.match(user, /- Google Task: Renew passport \(To do, DUE-TODAY/);
-  assert.match(user, /- #123034 Write the landing zone ADR/);
+  assert.match(user, /- \[t5\] Google Task: Renew passport \(To do, DUE-TODAY/);
+  assert.match(user, /- \[t1\] #123034 Write the landing zone ADR/);
 });
 
 // ---------------- items that leave a refresh ----------------

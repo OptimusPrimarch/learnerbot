@@ -26,8 +26,8 @@ let updateError = '';            // why the last update attempt failed, shown in
 // The backend version this copy of the site was written for. A sheet script older than this keeps working for
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
-const EXPECTED_BACKEND = '2026.11.29';
-const SITE_RELEASE = '1.15';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
+const EXPECTED_BACKEND = '2026.11.30';
+const SITE_RELEASE = '1.16';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const CUSTOM_LOOK_BUILD = '2026.10.11';   // the first script build that can save the Custom theme
 const VERSION_KEY = 'learnerbot.backendVersion';
@@ -626,13 +626,15 @@ function syncAiButtons() {
   document.querySelectorAll('[data-act="runDaily"], [data-act="runWeekly"]').forEach(b => { b.disabled = aiBusy; });
 }
 
-// Dashboard: today's focus, then the log (so adding an entry never means scrolling past every goal), then the goals.
+// Dashboard: today's focus, then the log (so adding an entry never means scrolling past every goal), then the to-do list (folded), then the goals.
 function renderDash() {
   const s = STATE;
   const g = $('mainGrid');
   g.innerHTML = '';
   g.appendChild(focusCard(s.dailyReport));
   g.appendChild(logCard());
+  const todo = typeof todoCard === 'function' ? todoCard() : null;
+  if (todo) g.appendChild(todo);
   g.appendChild(goalsCard(arr(s.goals), arr(s.tasks)));
 }
 
@@ -693,6 +695,7 @@ function focusCard(rep) {
   if (rep && rep.data) {
     const r = rep.data;
     html += `<h3>${esc(r.focus)}</h3>
+      ${r.assessment ? `<p class="assess">${esc(r.assessment)}</p>` : ''}
       <ul class="plain">${arr(r.actions).map(a => `<li>${esc(a)}</li>`).join('')}</ul>
       ${r.reason ? `<p class="muted" style="margin-top:10px;font-size:14px">${esc(r.reason)}</p>` : ''}
       <p class="ts">Generated ${esc(fmtDate(rep.date))}</p>`;
@@ -1719,6 +1722,7 @@ function openSettings(message, kind) {
   syncLookForm();
   lookMsg('');
   renderNotifyForm();
+  if (typeof renderAutoBox === 'function') renderAutoBox();
   renderVoiceForm();
   renderVersionLine();
   renderPhoneBox();

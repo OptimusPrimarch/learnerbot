@@ -157,13 +157,23 @@ function buildPlanContext(dashboard) {
 
 // ---- Agent calls -------------------------------------------
 
+/** The coach's answer, tidied: `assessment` is plain text and `covered` only holds keys of the form t<number>. */
+function _cleanCoach(r) {
+  r = r && typeof r === 'object' ? r : {};
+  const out = Object.assign({}, r);
+  out.assessment = _clip(r.assessment, 700);
+  out.covered = (Array.isArray(r.covered) ? r.covered : []).map(x => String(x).trim().replace(/^\[|\]$/g, '')).filter(x => /^t\d{1,9}$/.test(x)).filter((x, i, a) => a.indexOf(x) === i).slice(0, 30);
+  return out;
+}
+
 function callLearningCoach(context) {
-  return callGroq([
+  return _cleanCoach(callGroq([
     {
       role: 'system',
       content: [
         'You are a Learning Coach for a single user checking in each morning.',
-        'Given their active goals and any feedback, choose ONE specific focus for today.',
+        'Given their active goals, their to-do list and any feedback, choose ONE specific focus for today.',
+        'When a TO-DO LIST is given, make an honest assessment across those current obligations and the ACTIVE GOALS: where they pull the same way, where they compete for the day, and what is at risk if it waits. Build the focus and the actions around both, not around the goals alone.',
         'Be concrete \u2014 name the goal, the action, the reason. Do not be generic.',
         'Weigh what the facts say: overdue and soon-due goals first, then goals that have gone quiet, then goals that already have open tasks you can point at.',
         'Build on what they have actually logged lately, and do not simply repeat the previous focus unless a deadline demands it.',
@@ -171,11 +181,12 @@ function callLearningCoach(context) {
         'When a TODAY\'S WORK PLAN is given, let it shape the actions: say which listed work item to start with and fit it to the open focus time, and mention which goal or team objective it advances when the data says so. Refer to items by their ID and never invent work items. If it says no fresh plan arrived, ignore work items and plan from the goals alone.',
         '',
         'Return ONLY valid JSON in exactly this shape (no markdown, no extra keys):',
-        '{"focus":"short title for today","actions":["specific action 1","specific action 2","specific action 3"],"reason":"one sentence on why this focus matters today"}'
+        'assessment is two or three plain sentences. actions has three to five short bullets, each one something that fits in a block of time. covered lists the keys (like t12, exactly as written in the TO-DO LIST) of to-do items your actions already take care of; use [] when there are none, and never invent a key.',
+        '{"assessment":"2-3 sentences weighing the to-do list against the goals","focus":"short title for today","actions":["specific action 1","specific action 2","specific action 3"],"reason":"one sentence on why this focus matters today","covered":["t12"]}'
       ].concat(_voiceBlock()).join('\n')
     },
     { role: 'user', content: context }
-  ]);
+  ]));
 }
 
 function callLifeDashboard(context) {

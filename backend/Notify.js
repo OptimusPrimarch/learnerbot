@@ -67,7 +67,7 @@ function saveNotifications(a) {
 
 // ---- Triggers (one per switched-on schedule) ----------------
 
-// ---- The Workday's own refresh (no email): Google Tasks and Google Calendar on weekdays, at the hours the person chose ----
+// ---- The sheet's own Google refresh (no email; the name Workday is kept inside the code): Google Tasks and Google Calendar on weekdays, at the hours the person chose ----
 
 const WORKDAY_DEFAULT_HOURS = [6, 15];
 
@@ -130,7 +130,7 @@ function menuEmailsOff() {
   ['daily', 'weekly', 'nudge'].forEach(k => { s[k].enabled = false; });
   _props().setProperty('NOTIFY', JSON.stringify(s));
   _syncTriggers(s);
-  SpreadsheetApp.getUi().alert('All scheduled emails are off. (The Workday\'s own refresh, if you turned it on, is separate and keeps running.) You can turn emails back on in the LearnerBot site: \u2699 \u2192 Email updates.');
+  SpreadsheetApp.getUi().alert('All scheduled emails are off. (The automatic Google refresh, if you turned it on, is separate and keeps running.) You can turn emails back on in the LearnerBot site: \u2699 \u2192 Email updates.');
 }
 
 // ---- Scheduled jobs -----------------------------------------
@@ -214,7 +214,7 @@ function _list(items) {
 }
 
 function _dailyHtml(r) {
-  return '<h2 style="font-family:sans-serif">Today\'s focus: ' + _h(r.focus) + '</h2>' + _list(r.actions) +
+  return '<h2 style="font-family:sans-serif">Today\'s focus: ' + _h(r.focus) + '</h2>' + (r.assessment ? '<p style="font-family:sans-serif">' + _h(r.assessment) + '</p>' : '') + _list(r.actions) +
     '<p style="font-family:sans-serif;color:#666"><em>' + _h(r.reason) + '</em></p>' + _footer();
 }
 

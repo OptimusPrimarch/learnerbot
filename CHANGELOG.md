@@ -5,6 +5,31 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.16 · build 2026.11.30 · 2026-11-25
+
+**Today's Look: your day from 8 AM to 8 PM, and a to-do list that lives on the dashboard**
+- **The Workday is now Today's Look**, and it is a different page. It starts with today's focus and the coach's new **assessment**, then draws your
+  day from 8 AM to 8 PM using both calendars: what is booked (Outlook and Google) on the left, what you have placed on the right. Meetings that are
+  already over still show
+- **Quick schedule** sits under the calendar. It lists the bullets of today's focus first, then the rest of your to-do list that the focus does not cover.
+  Pick a time beside any item (or tap an empty time on the calendar) and it lands on your day. The sheet refuses a time that overlaps a booking or another block
+- **Focus blocks**: a 30-minute block that never leaves the list, for work or learning that is not already on your list or calendar. Give it tags
+  (SQL, READING, whatever you like) so different blocks can stand for different things; the tags you use are offered again. Two focus blocks that
+  cover exactly the same time merge into one and keep both sets of tags. Tap a block to change its time, length or tags, take it off the day, or mark it done
+  (that logs the time, with its tags)
+- **The to-do list moved** to a card on the Goals Dashboard, just under Log Activity, and it is folded until you open it. Add a task, goal links, Skip,
+  Done, the Closed list and **Refresh Google** are all there, working as before
+- **The daily focus is smarter about your list.** The coach now reads your open to-do items (planner work items, Google Tasks and your own) next to your active goals,
+  writes a short assessment of where they agree or compete, builds its bullets around both, and says which to-do items its bullets already cover. It sees your
+  own tasks and Google Tasks even on a day the planner did not run. The assessment also appears in the daily email
+- **Automatic refresh moved into Settings** (the gear), with the other settings
+- Team objectives on Today's Look can be shown or minimized again (the button had stopped responding)
+- The planner now sends the whole day's booked times (still only times, never names), so the morning shows on the calendar after the 3 PM refresh. Open time and
+  the realistic budget still count from now
+
+**No one-time paste this time.** This release is the page plus the app payload: press **Update now** in LearnerBot once. Your Today tab gets three new columns
+(Start, Dur, Tags) by itself.
+
 ## 1.15 · build 2026.11.29 · 2026-11-25
 
 **Authorize Google from the sheet menu, and a refresh that runs inside your sheet**
