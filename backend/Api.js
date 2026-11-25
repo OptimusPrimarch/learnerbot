@@ -72,7 +72,9 @@ const ACTIONS = {
   setTodayGoal:     a => setTodayGoal(a),
   setTodayStatus:   a => setTodayStatus(a),
   completeTodayTask: a => completeTodayTask(a),
-  refreshTasks:     () => ({ tasks: refreshGoogleTasks(), view: getTodayView() }),
+  refreshGoogle:    () => ({ tasks: refreshGoogleTasks(), calendar: refreshGoogleCalendar(), view: getTodayView() }),
+  refreshTasks:     () => ({ tasks: refreshGoogleTasks(), calendar: refreshGoogleCalendar(), view: getTodayView() }),   // the earlier name of the same thing
+  getGoogleDay:     () => getGoogleDay(),
   newChat:          () => startNewChat(),
 
   // Looking back at the log (shown in History), and changing it. Removing only hides an entry.

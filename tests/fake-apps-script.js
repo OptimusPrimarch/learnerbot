@@ -63,6 +63,7 @@ function load(repoRoot, opts) {
       formatDate: (d, tz, fmt) => {
         const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)
           .reduce((o, x) => { o[x.type] = x.value; return o; }, {});
+        if (fmt === 'HH:mm') return new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
         if (fmt === 'yyyy') return p.year;
         if (fmt === 'EEEE') return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(d);
         return p.year + '-' + p.month + '-' + p.day;
@@ -84,6 +85,19 @@ function load(repoRoot, opts) {
   };
   // opts.tasks = { lists: [{ id, title, items: [...] }], fail: 'message' } stands in for the Google Tasks service (enabled in the real
   // sheet through Services > Google Tasks API). The object stays live, so a test can change it between refreshes.
+  // opts.now (an ISO time) freezes the script's clock, so "from now on" open time is the same on every run.
+  if (opts.now) {
+    const fixed = new Date(opts.now).getTime();
+    ctx.Date = class extends Date { constructor(...a) { if (a.length === 0) super(fixed); else super(...a); } static now() { return fixed; } };
+  }
+  // opts.calendar = { calendars: [{ id, summary, primary, selected, events: [...] }], fail } stands in for the Google Calendar service.
+  const calendarCalls = [];
+  if (opts.calendar) {
+    ctx.Calendar = {
+      CalendarList: { list: () => { if (opts.calendar.fail) throw new Error(opts.calendar.fail); return { items: opts.calendar.calendars.map(c => ({ id: c.id, summary: c.summary, primary: !!c.primary, selected: !!c.selected, deleted: !!c.deleted })) }; } },
+      Events: { list: (id, o) => { calendarCalls.push({ id, o }); const c = opts.calendar.calendars.find(x => x.id === id); return { items: c ? c.events : [] }; } }
+    };
+  }
   const tasksCalls = [];
   if (opts.tasks) {
     ctx.Tasks = {
@@ -103,7 +117,7 @@ function load(repoRoot, opts) {
     return JSON.parse(out.getContent());
   }
   const ok = (action, args) => { const r = call(action, args); if (!r.ok) throw new Error(action + ' failed: ' + r.code + ' ' + r.error); return r.data; };
-  return { call, ok, store, groqCalls, tasksCalls, sheets, setGroq: s => { groqAnswer = s; }, ctx };
+  return { call, ok, store, groqCalls, tasksCalls, calendarCalls, sheets, setGroq: s => { groqAnswer = s; }, ctx };
 }
 
 const ymd = (offsetDays, tz) => {

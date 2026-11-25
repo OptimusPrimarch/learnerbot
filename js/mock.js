@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.11.27';
-  const RELEASE = '1.13';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.11.28';
+  const RELEASE = '1.14';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -110,6 +110,7 @@ const Mock = (() => {
     ]);
     db.todayMeta = { date: d, at: new Date().toISOString(), budget: 1.8,
       focus: [{ start: '09:30', end: '12:00', minutes: 150 }, { start: '13:00', end: '15:00', minutes: 120 }, { start: '15:30', end: '17:00', minutes: 90 }], busy: [{ start: '09:00', end: '09:30', src: 'Outlook' }, { start: '12:00', end: '13:00', src: 'Google' }, { start: '15:00', end: '15:30', src: 'Outlook' }], allDay: 1,
+      sources: { outlook: 'ok', google: 'ok' },
       objectives: [{ key: '1', name: 'Learn Python fundamentals', progress: 40, due: '12/31' }, { key: '2', name: 'Finish the data structures course', progress: 15, due: '1/31' }] };
     save();
   }
@@ -123,7 +124,7 @@ const Mock = (() => {
   function todayView() {
     if (!db.todayMeta || db.todayMeta.date !== iso(0)) demoFeed();
     const d = iso(0);
-    return { date: d, fresh: true, feed: db.todayMeta, items: db.today.filter(t => t.date === d).map(t => ({ ...t })), carried: [], tasks: tasksStatus() };
+    return { date: d, fresh: true, feed: db.todayMeta, items: db.today.filter(t => t.date === d).map(t => ({ ...t })), carried: [], tasks: tasksStatus(), calendar: { enabled: true, at: new Date().toISOString(), error: '', busy: [], allDay: 1, calendars: 2 } };
   }
   function todayItem(id) {
     const t = db.today.find(x => x.id === String(id));
@@ -425,7 +426,8 @@ const Mock = (() => {
       case 'setTaskStatus':  setStatus(db.tasks, a, ['active', 'done', 'removed']); save(); return { ok: true };
       case 'logActivity':    { const entry = logActivity(a); save(); return { entry, streak: streak(), weekMinutes: weekMinutes() }; }
       case 'getToday':       return todayView();
-      case 'refreshTasks':   return { tasks: tasksStatus(), view: todayView() };
+      case 'refreshTasks':
+      case 'refreshGoogle':  { const v = todayView(); return { tasks: tasksStatus(), calendar: v.calendar, view: v }; }
       case 'newChat':        db.chat.push({ ts: new Date().toISOString(), role: 'divider', text: 'new conversation' }); save(); return { chatHistory: [] };
       case 'setTodayFeed':   return { added: 0, updated: 0, purged: 0, count: 0, view: todayView() };
       case 'addTodayTask': {
