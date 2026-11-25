@@ -210,18 +210,38 @@ function setObjShown(on) {
   try { localStorage.setItem(OBJ_PREF_KEY, on ? 'show' : 'min'); } catch (_) { /* kept for this visit only */ }
 }
 
+// The objectives you care about. Tracked ones stay listed (with their progress) even when the rest are minimized. Like Show/Minimize this is
+// remembered on this device, keyed by the objective's number in WAYD.
+const OBJ_TRACK_KEY = 'learnerbot.workday.tracked';
+let objTrackedVisit = [];
+function objTracked() {
+  try { const v = JSON.parse(localStorage.getItem(OBJ_TRACK_KEY) || 'null'); return Array.isArray(v) ? v.map(String) : objTrackedVisit; } catch (_) { return objTrackedVisit; }
+}
+function setObjTracked(list) {
+  objTrackedVisit = list;
+  try { localStorage.setItem(OBJ_TRACK_KEY, JSON.stringify(list)); } catch (_) { /* kept for this visit only */ }
+}
+
 function lkObjectives(f) {
   const list = f ? arr(f.objectives) : [];
   if (!list.length) return '';
-  const shown = objShown();
+  const shown = objShown(), tracked = new Set(objTracked());
+  const mine = list.filter(o => tracked.has(String(o.key)));
+  const row = o => {
+    const on = tracked.has(String(o.key));
+    return `<li class="t-obj"><div class="t-obj-top"><span>${esc(o.name)} <span class="muted">· ${esc(o.progress)}%${o.due ? ', due ' + esc(o.due) : ''}</span></span>
+      <button type="button" class="ghost run t-star${on ? ' on' : ''}" data-act="trackObjective" data-key="${esc(o.key)}" aria-pressed="${on}" aria-label="Track: ${esc(o.name)}" title="${on ? 'Tracked: stays visible when minimized' : 'Track this objective'}">${on ? '★' : '☆'}</button></div>
+      <div class="progress-bar" role="progressbar" aria-label="${esc(o.name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${esc(o.progress)}"><div class="progress-fill" style="width:${esc(o.progress)}%"></div></div></li>`;
+  };
   const avg = Math.round(list.reduce((s, o) => s + (Number(o.progress) || 0), 0) / list.length);
+  const others = list.length - mine.length;
   const body = shown
-    ? `<ul class="plain" id="objList">${list.map(o => `<li>${esc(o.name)} <span class="muted">· ${esc(o.progress)}%${o.due ? ', due ' + esc(o.due) : ''}</span>
-        <div class="progress-bar" role="progressbar" aria-label="${esc(o.name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${esc(o.progress)}"><div class="progress-fill" style="width:${esc(o.progress)}%"></div></div></li>`).join('')}</ul>`
-    : `<p class="muted t-obj-sum" id="objList">${list.length} objective${list.length === 1 ? '' : 's'} · ${avg}% done on average</p>`;
+    ? `<ul class="plain" id="objList">${list.map(row).join('')}</ul>`
+    : `<div id="objList">${mine.length ? `<ul class="plain">${mine.map(row).join('')}</ul>` : ''}
+        <p class="muted t-obj-sum">${mine.length ? others + ' other objective' + (others === 1 ? '' : 's') + ' minimized' : list.length + ' objective' + (list.length === 1 ? '' : 's') + ' · ' + avg + '% done on average. Show them, then tap ☆ on the ones you want to keep in view.'}</p></div>`;
   return `<section class="card wide t-sec" aria-label="Team objectives">
-    <div class="card-head"><label class="head">Team objectives <span class="muted">(${list.length})</span></label>
-      <button type="button" class="ghost run" data-act="toggleObjectives" aria-expanded="${shown}" aria-controls="objList">${shown ? 'Minimize' : 'Show'}</button></div>
+    <div class="card-head"><label class="head">Team objectives <span class="muted">(${list.length}${mine.length ? ', ' + mine.length + ' tracked' : ''})</span></label>
+      <button type="button" class="ghost run" data-act="toggleObjectives" aria-expanded="${shown}" aria-controls="objList">${shown ? 'Minimize' : 'Show all'}</button></div>
     ${body}
   </section>`;
 }
@@ -420,7 +440,12 @@ Object.assign(HANDLERS, {
     if (have.map(s => s.toUpperCase()).indexOf(String(d.v).toUpperCase()) < 0) have.push(d.v);
     el.value = have.join(', ');
   },
-  toggleObjectives: () => { setObjShown(!objShown()); if (STATE) render(); }
+  toggleObjectives: () => { setObjShown(!objShown()); if (STATE) render(); },
+  trackObjective: d => {
+    const cur = objTracked(), k = String(d.key);
+    setObjTracked(cur.indexOf(k) >= 0 ? cur.filter(x => x !== k) : cur.concat(k));
+    if (STATE) render();
+  }
 });
 
 (function wireLookDialog() {
