@@ -7,7 +7,8 @@
 
 let TODAY_FINISHING = null;     // id of the task whose "how long did it take?" box is open
 let TODAY_OPENER = '';          // id of the check button that opened it, to give focus back
-let TODAY_STALE_LOAD = false;   // a refresh because the page was left open past midnight is already on its way
+let TODAY_STALE_LOAD = false;
+let todayDayInit = false;       // "Your day" starts open; after that the person's open/closed choice is remembered like any panel   // a refresh because the page was left open past midnight is already on its way
 
 const todayData = () => (STATE && STATE.today && typeof STATE.today === 'object' ? STATE.today : null);
 const todayAvailable = () => !!todayData() && !backendOutdated();
@@ -106,11 +107,6 @@ function todayHead(t) {
   const pct = live.length ? Math.round(done.length / live.length * 100) : 0;
   const f = t.feed;
   const bits = [];
-  if (f && f.focus && f.focus.length) {
-    const total = f.focus.reduce((s, w) => s + (w.minutes || 0), 0);
-    bits.push(`Open focus time: ${f.focus.map(span).join(', ')} (${esc(fmtMinutes(total))} in all).`);
-  }
-  if (f && f.busy && f.busy.length) bits.push(`Booked: ${f.busy.map(span).join(', ')}.`);
   if (f && f.budget !== '' && f.budget != null) bits.push(`A realistic load is about ${esc(f.budget)} story points of work.`);
   const when = f && f.at ? new Date(f.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
   return `<section class="card wide focus t-head" aria-label="Today at a glance">
@@ -121,6 +117,30 @@ function todayHead(t) {
     <div class="progress-bar t-bar" role="progressbar" aria-label="Tasks done today" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><div class="progress-fill" style="width:${pct}%"></div></div>
     ${bits.length ? `<p class="muted" style="margin-top:10px;font-size:14px">${bits.join(' ')}</p>` : ''}
   </section>`;
+}
+
+/** The day's shape from the feed: booked windows (tagged Outlook or Google) and open focus windows, in time order. Names never arrive here. */
+function todayDay(f) {
+  if (!f) return '';
+  const rows = [];
+  arr(f.busy).forEach(w => rows.push({ start: w.start, end: w.end, kind: 'busy', src: w.src || '' }));
+  arr(f.focus).forEach(w => rows.push({ start: w.start, end: w.end, kind: 'open', minutes: w.minutes }));
+  if (!rows.length && !f.allDay) return '';
+  rows.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : (a.kind === 'busy' ? -1 : 1)));
+  const key = 'today-day';
+  if (!todayDayInit) { OPEN_DETAILS.add(key); todayDayInit = true; }
+  const list = rows.map(r => `<li class="t-day-row ${r.kind}">
+      <span class="t-time">${esc(hm12(r.start))} to ${esc(hm12(r.end))}</span>
+      ${r.kind === 'open'
+        ? `<span><span class="pill completed">Open focus</span> <span class="muted">${esc(fmtMinutes(r.minutes || 0))}</span></span>`
+        : `<span><span class="pill">Booked</span>${r.src ? ` <span class="muted">${esc(r.src)}</span>` : ''}</span>`}
+    </li>`).join('');
+  const allDay = f.allDay ? `<p class="muted" style="margin-top:8px;font-size:14px">${esc(f.allDay)} all-day item${f.allDay === 1 ? '' : 's'} on your calendar (these do not take up time).</p>` : '';
+  return `<section class="card wide t-sec" aria-label="Your day"><details data-key="${key}"${OPEN_DETAILS.has(key) ? ' open' : ''}>
+    <summary>Your day, both calendars</summary>
+    <ul class="t-day-list">${list || '<li class="muted">Nothing timed today.</li>'}</ul>${allDay}
+    <p class="muted" style="margin-top:8px;font-size:12px">Event names stay on your computer; only times arrive here.</p>
+  </details></section>`;
 }
 
 function todayObjectives(f) {
@@ -148,7 +168,7 @@ function renderToday() {
   }
   const items = arr(t.items), carried = arr(t.carried);
   const todo = items.filter(i => i.status === 'open');
-  let html = todayHead(t);
+  let html = todayHead(t) + todayDay(t.feed);
   if (!t.fresh) {
     html += `<div class="notice warn wide-notice" role="status"><div><b>No fresh plan arrived today.</b>
       <div class="muted">${t.feed && t.feed.date ? 'The last plan was for ' + esc(dayLabel(t.feed.date)) + '. ' : ''}Your coach plans from your goals alone until one arrives. You can still add tasks by hand below, and the planner can be run again from your computer.</div></div></div>`;

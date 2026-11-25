@@ -5,8 +5,8 @@
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.8';
-const APP_VERSION = '2026.11.25';
+const APP_RELEASE = '1.9';
+const APP_VERSION = '2026.11.25.1';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800, voiceName: 30, myVoices: 12 };

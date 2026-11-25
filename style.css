@@ -375,3 +375,10 @@ button.t-check:disabled{opacity:.4;cursor:default}
   .views{gap:6px}
   .views .nav-btn{padding:6px 4px;font-size:calc(12px*var(--fs));min-width:0}
 }
+
+/* Your day: booked windows (tagged with their calendar) and open focus windows in time order. Labels are words, not colour alone. */
+.t-day-list{list-style:none}
+.t-day-row{display:grid;grid-template-columns:minmax(9.5em,max-content) minmax(0,1fr);gap:4px 14px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)}
+.t-day-row:last-child{border-bottom:0}
+.t-time{font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:680px){.t-day-row{grid-template-columns:minmax(0,1fr);gap:2px}}

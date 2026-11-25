@@ -5,6 +5,17 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.9 · build 2026.11.25.1 · 2026-11-25
+
+**Your day, from both calendars (Today tab)**
+- A new **Your day** panel on the Today tab shows the day in time order: **Booked** windows, tagged with the calendar they came from
+  (Outlook or Google), and **Open focus** windows with how long each is. It also says how many all-day items are on your calendar
+- Only times arrive from your computer, never event names. The names are in the planner's own printout and daily file on your computer
+- The 7am coach now hears which calendar each booked window is on, so it can tell work time from personal time
+
+**Needs the script update:** yes, a small one. Press **Update now**. Nothing in your sheet changes; the Today feed simply carries a
+little more (which calendar each booked window is on, and how many all-day items there are). An older script keeps working without it.
+
 ## 1.8 · build 2026.11.25 · 2026-11-25
 
 **A Today tab: the day's work, apart from your goals**

@@ -25,7 +25,8 @@ test('generated files are in step with backend/ and tools/', () => {
 test('the new script starts, reports the new build, and the Today tab exists', () => {
   const w = load(root);
   const ping = w.ok('ping');
-  assert.equal(ping.release, '1.8');
+  const code = require('fs').readFileSync(path.join(root, 'backend', 'Code.js'), 'utf8');
+  assert.equal(ping.release, /const APP_RELEASE = '([^']+)'/.exec(code)[1]);
   const s = w.ok('getState');
   assert.equal(s.today.fresh, false);
   assert.deepEqual(s.today.items, []);
@@ -92,6 +93,26 @@ test('the daily coach reads a fresh plan: short titles, IDs and objectives, noth
   assert.match(user, /Open focus time: 09:00-17:00/);
   assert.match(user, /Data as a Product Strategy: 11%/);
   assert.match(user, /about 1\.8 story points/);
+});
+
+test('booked windows keep their calendar label and an all-day count, and the coach hears which calendar', () => {
+  const w = load(root);
+  const r = w.ok('setTodayFeed', feed({ meta: { budget: 1.1, focus: [{ start: '09:00', end: '11:00', minutes: 120 }], allDay: 2,
+    busy: [{ start: '08:30', end: '09:00', src: 'Outlook' }, { start: '12:00', end: '13:00', src: 'Google' }, { start: '14:00', end: '15:00', src: 'Hacker<script>' }, { start: '15:00', end: '16:00' }] } }));
+  const f = r.view.feed;
+  assert.deepEqual(f.busy.map(b => b.src), ['Outlook', 'Google', '', ''], 'only the two known calendar names are kept');
+  assert.equal(f.allDay, 2);
+  assert.equal(f.busy.length, 4);
+  w.ok('runDaily');
+  const user = w.groqCalls.at(-1).messages[1].content;
+  assert.match(user, /Booked: 08:30-09:00 \(Outlook\), 12:00-13:00 \(Google\), 14:00-15:00, 15:00-16:00/);
+});
+
+test('the all-day count is clamped and meeting names in a feed are ignored', () => {
+  const w = load(root);
+  const r = w.ok('setTodayFeed', feed({ meta: { allDay: 9999, busy: [{ start: '09:00', end: '10:00', src: 'Outlook', subject: 'Layoffs planning', title: 'Secret' }] } }));
+  assert.equal(r.view.feed.allDay, 20);
+  assert.ok(!JSON.stringify(r.view.feed).match(/Layoffs|Secret/), 'unknown fields are never stored');
 });
 
 test('completing a task logs it with the time, tags it from the linked goal, and never logs twice', () => {

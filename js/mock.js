@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.11.25';
-  const RELEASE = '1.8';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.11.25.1';
+  const RELEASE = '1.9';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -104,7 +104,7 @@ const Mock = (() => {
       mk(String(parseInt(nextId(db.today), 10) + 2), '2063', 'Set up the practice repo', 3, 'New', ['CARRIED-OVER'], '')
     ]);
     db.todayMeta = { date: d, at: new Date().toISOString(), budget: 1.8,
-      focus: [{ start: '09:30', end: '12:00', minutes: 150 }, { start: '13:00', end: '17:00', minutes: 240 }], busy: [{ start: '09:00', end: '09:30' }, { start: '12:00', end: '13:00' }],
+      focus: [{ start: '09:30', end: '12:00', minutes: 150 }, { start: '13:00', end: '15:00', minutes: 120 }, { start: '15:30', end: '17:00', minutes: 90 }], busy: [{ start: '09:00', end: '09:30', src: 'Outlook' }, { start: '12:00', end: '13:00', src: 'Google' }, { start: '15:00', end: '15:30', src: 'Outlook' }], allDay: 1,
       objectives: [{ key: '1', name: 'Learn Python fundamentals', progress: 40, due: '12/31' }, { key: '2', name: 'Finish the data structures course', progress: 15, due: '1/31' }] };
     save();
   }
