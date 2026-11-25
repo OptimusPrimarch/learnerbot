@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.11.26';
-  const RELEASE = '1.12';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.11.27';
+  const RELEASE = '1.13';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -97,21 +97,33 @@ const Mock = (() => {
   const T_STATUS = ['open', 'done', 'skipped'];
   function demoFeed() {
     const d = iso(0);
-    const mk = (n, sourceId, title, points, state, flags, note) => ({ id: String(n), date: d, title, source: 'planner', sourceId, points, state, goalId: '', flags, status: 'open', doneOn: '', minutes: 0, logId: '', note });
-    db.today = db.today.filter(t => t.source !== 'planner' || t.date !== d).concat([
-      mk(nextId(db.today), '2041', 'Review the sorting exercise PR', 1, 'PR Ready', [], ''),
-      mk(String(parseInt(nextId(db.today), 10) + 1), '2057', 'Write the data structures summary', 5, 'Active', ['DUE-IN-2d'], 'Finish the data structures course'),
-      mk(String(parseInt(nextId(db.today), 10) + 2), '2063', 'Set up the practice repo', 3, 'New', ['CARRIED-OVER'], '')
+    db.today = db.today.filter(t => t.date !== d || t.source === 'me');
+    let n = parseInt(nextId(db.today), 10);
+    const mk = (sourceId, title, points, state, flags, note) => ({ id: String(n++), date: d, title, source: 'planner', sourceId, points, state, goalId: '', flags, status: 'open', doneOn: '', minutes: 0, logId: '', note, links: [] });
+    const gt = (sourceId, title, flags, links) => ({ id: String(n++), date: d, title, source: 'google-task', sourceId, points: null, state: 'To do', goalId: '', flags, status: 'open', doneOn: '', minutes: 0, logId: '', note: 'My Tasks', links });
+    db.today = db.today.concat([
+      mk('2041', 'Review the sorting exercise PR', 1, 'PR Ready', [], ''),
+      mk('2057', 'Write the data structures summary', 5, 'Active', ['DUE-IN-2d'], 'Finish the data structures course'),
+      mk('2063', 'Set up the practice repo', 3, 'New', ['CARRIED-OVER'], ''),
+      gt('gt-lib', 'Renew the library card', ['DUE-TODAY'], [{ u: 'https://tasks.google.com/task/gt-lib', d: 'Open in Google Tasks' }, { u: 'https://mail.google.com/mail/u/0/#inbox/demo', d: 'Library reminder email' }]),
+      gt('gt-book', 'Return the borrowed book', ['OVERDUE'], [{ u: 'https://tasks.google.com/task/gt-book', d: 'Open in Google Tasks' }])
     ]);
     db.todayMeta = { date: d, at: new Date().toISOString(), budget: 1.8,
       focus: [{ start: '09:30', end: '12:00', minutes: 150 }, { start: '13:00', end: '15:00', minutes: 120 }, { start: '15:30', end: '17:00', minutes: 90 }], busy: [{ start: '09:00', end: '09:30', src: 'Outlook' }, { start: '12:00', end: '13:00', src: 'Google' }, { start: '15:00', end: '15:30', src: 'Outlook' }], allDay: 1,
       objectives: [{ key: '1', name: 'Learn Python fundamentals', progress: 40, due: '12/31' }, { key: '2', name: 'Finish the data structures course', progress: 15, due: '1/31' }] };
     save();
   }
+  const tasksStatus = () => ({ enabled: true, at: new Date().toISOString(), count: db.today.filter(t => t.source === 'google-task' && t.date === iso(0) && t.status === 'open').length, error: '' });
+  // The assistant's display starts after the last "new conversation" divider; earlier messages stay stored.
+  function chatNow() {
+    let from = 0;
+    db.chat.forEach((m, i) => { if (m.role === 'divider') from = i + 1; });
+    return db.chat.slice(from).slice(-30);
+  }
   function todayView() {
     if (!db.todayMeta || db.todayMeta.date !== iso(0)) demoFeed();
     const d = iso(0);
-    return { date: d, fresh: true, feed: db.todayMeta, items: db.today.filter(t => t.date === d).map(t => ({ ...t })), carried: [] };
+    return { date: d, fresh: true, feed: db.todayMeta, items: db.today.filter(t => t.date === d).map(t => ({ ...t })), carried: [], tasks: tasksStatus() };
   }
   function todayItem(id) {
     const t = db.today.find(x => x.id === String(id));
@@ -134,7 +146,7 @@ const Mock = (() => {
       weeklyReport: db.reports.weekly,
       recentFeedback: db.feedback.slice(-3),
       history: db.history.slice(-5),
-      chatHistory: db.chat.slice(-30),
+      chatHistory: chatNow(),
       streak: streak(),
       weekMinutes: weekMinutes(),
       coachVoice: db.coachVoice || '',
@@ -413,6 +425,8 @@ const Mock = (() => {
       case 'setTaskStatus':  setStatus(db.tasks, a, ['active', 'done', 'removed']); save(); return { ok: true };
       case 'logActivity':    { const entry = logActivity(a); save(); return { entry, streak: streak(), weekMinutes: weekMinutes() }; }
       case 'getToday':       return todayView();
+      case 'refreshTasks':   return { tasks: tasksStatus(), view: todayView() };
+      case 'newChat':        db.chat.push({ ts: new Date().toISOString(), role: 'divider', text: 'new conversation' }); save(); return { chatHistory: [] };
       case 'setTodayFeed':   return { added: 0, updated: 0, purged: 0, count: 0, view: todayView() };
       case 'addTodayTask': {
         const title = clip(a.title, 80);

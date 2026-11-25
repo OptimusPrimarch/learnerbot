@@ -82,6 +82,15 @@ function load(repoRoot, opts) {
     MailApp: { sendEmail: () => {} }, HtmlService: { createHtmlOutput: s => ({ s }) },
     Logger: { log: () => {} }
   };
+  // opts.tasks = { lists: [{ id, title, items: [...] }], fail: 'message' } stands in for the Google Tasks service (enabled in the real
+  // sheet through Services > Google Tasks API). The object stays live, so a test can change it between refreshes.
+  const tasksCalls = [];
+  if (opts.tasks) {
+    ctx.Tasks = {
+      Tasklists: { list: () => { if (opts.tasks.fail) throw new Error(opts.tasks.fail); return { items: opts.tasks.lists.map(l => ({ id: l.id, title: l.title })) }; } },
+      Tasks: { list: (id, o) => { tasksCalls.push({ id, o }); const l = opts.tasks.lists.find(x => x.id === id); return { items: l ? l.items : [] }; } }
+    };
+  }
   vm.createContext(ctx);
   let gs = fs.readFileSync(path.join(repoRoot, 'backend-latest.gs'), 'utf8');
   // opts.asVersion makes the built-in copy claim an older build, like a sheet that has not been updated yet (the loader is the real one).
@@ -94,7 +103,7 @@ function load(repoRoot, opts) {
     return JSON.parse(out.getContent());
   }
   const ok = (action, args) => { const r = call(action, args); if (!r.ok) throw new Error(action + ' failed: ' + r.code + ' ' + r.error); return r.data; };
-  return { call, ok, store, groqCalls, sheets, setGroq: s => { groqAnswer = s; }, ctx };
+  return { call, ok, store, groqCalls, tasksCalls, sheets, setGroq: s => { groqAnswer = s; }, ctx };
 }
 
 const ymd = (offsetDays, tz) => {

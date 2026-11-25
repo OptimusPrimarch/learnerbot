@@ -55,31 +55,43 @@ function goalOptions(selected) {
     `<option value="${esc(g.id)}"${String(selected) === g.id ? ' selected' : ''}>${esc(snippet(g.title, 60))}</option>`).join('');
 }
 
+/** Links from Google only (the sheet checks them too, and this is a second look): https to a google.com address, nothing else. */
+const safeHref = u => /^https:\/\/([a-z0-9-]+\.)*google\.com\/[^\s"<>]*$/i.test(String(u || ''));
+const linkHtml = (l, text) => `<a class="t-link" href="${esc(l.u)}" target="_blank" rel="noopener noreferrer">${esc(text)}<span class="sr-only"> (opens in a new tab)</span></a>`;
+
 function todayRow(it, carried) {
-  const done = it.status === 'done', skipped = it.status === 'skipped';
+  const done = it.status === 'done', skipped = it.status === 'skipped', closed = it.status === 'closed';
+  const isGT = it.source === 'google-task';
+  const links = arr(it.links).filter(l => safeHref(l.u));
+  const main = isGT && links.length ? links[0] : null;          // a Google Task's own link is its title
+  const extra = links.slice(main ? 1 : 0);                      // anything it points at (an email, a document) sits underneath
+  const titleHtml = main ? linkHtml(main, it.title) : esc(it.title);
+  const linksHtml = extra.length ? `<div class="t-links">${extra.map(l => linkHtml(l, l.d || 'Linked item')).join('')}</div>` : '';
   const id = esc(it.id);
   const meta = [];
-  if (it.sourceId) meta.push(`<span class="pill">#${esc(it.sourceId)}</span>`);
+  if (isGT) meta.push(`<span class="pill gtask">Google Task</span>`);
+  else if (it.sourceId) meta.push(`<span class="pill">#${esc(it.sourceId)}</span>`);
   if (it.points != null) meta.push(`<span class="pill">${esc(it.points)} pt${it.points === 1 ? '' : 's'}</span>`);
   if (it.state) meta.push(`<span class="pill">${esc(it.state)}</span>`);
   arr(it.flags).forEach(f => meta.push(`<span class="pill ${flagClass(f)}">${esc(f)}</span>`));
   if (carried) meta.push(`<span class="pill medium">From ${esc(dayLabel(it.date))}</span>`);
   const check = `<button type="button" class="t-check${done ? ' on' : ''}" role="checkbox" aria-checked="${done}" data-act="${done ? 'todayReopen' : 'todayDone'}" data-id="${id}"
-      aria-label="${done ? 'Done. Put back on the list: ' : 'Mark done: '}${esc(it.title)}"${skipped ? ' disabled' : ''}><span aria-hidden="true">${done ? '✓' : ''}</span></button>`;
-  const goal = skipped || done
+      aria-label="${done ? 'Done. Put back on the list: ' : 'Mark done: '}${esc(it.title)}"${skipped || closed ? ' disabled' : ''}><span aria-hidden="true">${done ? '✓' : ''}</span></button>`;
+  const goal = skipped || done || closed
     ? (it.goalId ? `<div class="t-note muted">Goal: ${esc(goalTitle(it.goalId))}</div>` : '')
     : `<div class="t-goal"><label class="sr-only" for="tg_${id}">Goal for ${esc(it.title)}</label>
         <select id="tg_${id}" data-change="todayGoal" data-id="${id}">${goalOptions(it.goalId)}</select></div>`;
   const side = done
     ? `<span class="muted t-done">${it.minutes ? esc(fmtMinutes(it.minutes)) + ' logged' : 'Logged'}</span>`
-    : skipped
+    : skipped || closed
       ? `<button type="button" class="ghost run" data-act="todayReopenSkipped" data-id="${id}" aria-label="Put back on the list: ${esc(it.title)}">Put back</button>`
       : `<button type="button" class="ghost run" data-act="todaySkip" data-id="${id}" aria-label="Skip for today: ${esc(it.title)}">Skip</button>`;
-  return `<li class="t-row${done ? ' is-done' : ''}${skipped ? ' is-skipped' : ''}">
+  return `<li class="t-row${done ? ' is-done' : ''}${skipped ? ' is-skipped' : ''}${closed ? ' is-closed' : ''}">
     ${check}
     <div class="t-main">
-      <div class="t-title">${esc(it.title)}</div>
+      <div class="t-title">${titleHtml}</div>
       ${meta.length ? `<div class="t-meta">${meta.join('')}</div>` : ''}
+      ${linksHtml}
       ${it.note ? `<div class="t-note muted">${esc(it.note)}</div>` : ''}
       ${goal}
     </div>
@@ -102,7 +114,7 @@ function todaySection(title, list, carried, open, key) {
 function todayHead(t) {
   const items = arr(t.items);
   const done = items.filter(i => i.status === 'done');
-  const live = items.filter(i => i.status !== 'skipped');
+  const live = items.filter(i => i.status !== 'skipped' && i.status !== 'closed');
   const mins = done.reduce((s, i) => s + (i.minutes || 0), 0);
   const pct = live.length ? Math.round(done.length / live.length * 100) : 0;
   const f = t.feed;
@@ -171,6 +183,37 @@ function todayObjectives(f) {
   </section>`;
 }
 
+/** What the Google Tasks refresh found, or how to turn it on. */
+function tasksNote(g) {
+  if (!g) return '';
+  const when = g.at ? new Date(g.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  if (g.error) {
+    const perm = /author|permission|scope|access|consent/i.test(g.error);
+    return `<p class="cfg-msg err" role="alert">Google Tasks could not be read: ${esc(g.error)}${perm ? ' Open your sheet, run any LearnerBot menu item once and approve Google\'s permission screen, then press Refresh Google Tasks.' : ''}</p>`;
+  }
+  if (!g.enabled) {
+    const key = 'today-gt-help';
+    return `<details class="t-help" data-key="${key}"${OPEN_DETAILS.has(key) ? ' open' : ''}><summary>Bring in your Google Tasks</summary>
+      <ol class="t-steps"><li>In your sheet, open <b>Extensions → Apps Script</b>.</li>
+        <li>Beside <b>Services</b>, press <b>+</b>, choose <b>Google Tasks API</b>, then <b>Add</b>.</li>
+        <li>Come back here and press <b>Refresh Google Tasks</b>. Google asks you to approve it once.</li></ol>
+      <p class="muted">Tasks due today or overdue then appear in this list, each with a link back to the task. Nothing is changed in Google Tasks.</p></details>`;
+  }
+  return `<p class="muted t-gt-sum" role="status">${g.count ? esc(g.count) + ' Google Task' + (g.count === 1 ? '' : 's') + ' due today or overdue' : 'No Google Tasks due today'}${when ? ' · checked ' + esc(when) : ''}</p>`;
+}
+
+function todoSection(t, todo, total) {
+  const g = t.tasks;
+  const body = todo.length
+    ? `<ul class="t-list">${todo.map(i => todayRow(i, false)).join('')}</ul>`
+    : `<p class="empty">${total ? 'Everything on today\'s list is handled. Nice.' : 'Nothing on the list yet. Add a task above, or wait for the morning plan.'}</p>`;
+  return `<section class="card wide t-sec" aria-label="To do">
+    <div class="card-head"><label class="head">To do <span class="muted">(${todo.length})</span></label>
+      ${g ? '<button type="button" class="ghost run" id="gtRefresh" data-act="todayRefreshTasks">Refresh Google Tasks</button>' : ''}</div>
+    ${tasksNote(g)}${body}
+  </section>`;
+}
+
 function renderToday() {
   const host = $('todayView');
   if (!host) return;
@@ -197,12 +240,11 @@ function renderToday() {
       <select id="todayGoalSel" aria-label="Link to a goal (optional)">${goalOptions('')}</select>
       <button type="button" data-act="todayAdd">Add</button>
     </div></section>`;
-  html += todo.length
-    ? todaySection('To do', todo, false, true, 'today-todo')
-    : `<section class="card wide t-sec"><label class="head">To do</label><p class="empty">${items.length ? 'Everything on today\'s list is handled. Nice.' : 'Nothing on the list yet. Add a task above, or wait for the morning plan.'}</p></section>`;
+  html += todoSection(t, todo, items.length);
   html += todaySection('Carried over', carried.filter(i => i.status === 'open'), true, true, 'today-carried');
   html += todaySection('Done', items.filter(i => i.status === 'done'), false, false, 'today-done');
   html += todaySection('Skipped', items.filter(i => i.status === 'skipped'), false, false, 'today-skipped');
+  html += todaySection('Closed since the last refresh', items.filter(i => i.status === 'closed'), false, false, 'today-closed');
   html += todayObjectives(t.feed);
   host.innerHTML = html;
 }
@@ -336,6 +378,19 @@ Object.assign(HANDLERS, {
   todaySkip:   d => todaySetStatus(d.id, 'skipped', 'Skipping', 'Skipped'),
   todayReopenSkipped: d => todaySetStatus(d.id, 'open', 'Putting back', ''),
   todayAdd:    () => todayAddNow(),
+  todayRefreshTasks: () => {
+    const b = $('gtRefresh');
+    if (b) b.disabled = true;
+    request('Refreshing Google Tasks', 'refreshTasks')
+      .then(({ res, latest }) => {
+        if (latest && STATE && res.view) STATE.today = res.view; else needsResync = true;   // newer local changes are still going out
+        settle();
+        const bad = res.tasks && res.tasks.error;
+        toast(bad ? 'Google Tasks: ' + res.tasks.error : (res.tasks && res.tasks.enabled ? 'Google Tasks refreshed.' : 'Google Tasks is not turned on in your sheet yet.'), bad ? 'error' : '');
+      })
+      .catch(err => fail(err))
+      .finally(() => { const b2 = $('gtRefresh'); if (b2) b2.disabled = false; });
+  },
   toggleObjectives: () => {
     setObjShown(!objShown());
     if (STATE) render();

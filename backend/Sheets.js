@@ -20,7 +20,7 @@ const TABS = {
   Chat:     ['Timestamp', 'Role', 'Text'],
   Settings: ['Key', 'Value'],
   // The Today page (Today.js): items sent by the planner or added by hand. Status is open, done or skipped.
-  Today:    ['ID', 'Date', 'Title', 'Source', 'SourceID', 'Points', 'State', 'GoalID', 'Flags', 'Status', 'StatusDate', 'Minutes', 'LogID', 'Ref', 'Note']
+  Today:    ['ID', 'Date', 'Title', 'Source', 'SourceID', 'Points', 'State', 'GoalID', 'Flags', 'Status', 'StatusDate', 'Minutes', 'LogID', 'Ref', 'Note', 'Links']
 };
 
 const PRIORITIES    = ['high', 'medium', 'low'];
@@ -376,10 +376,19 @@ function setTaskStatus(id, status) {
 
 function getChatHistory(n) {
   const count = n || 30;
-  return rows('Chat', count).slice(-count).filter(r => r[1] && r[2])
-    .map(r => ({ ts: _ts(r[0]), role: String(r[1]), text: String(r[2]) }));
+  // A "new conversation" is a divider row. Only what comes after the last one belongs to the current conversation;
+  // earlier messages stay in the sheet but are no longer shown.
+  const tail = rows('Chat', Math.max(count, 300)).filter(r => r[1] && r[2]);
+  let from = 0;
+  tail.forEach((r, i) => { if (String(r[1]) === 'divider') from = i + 1; });
+  return tail.slice(from).slice(-count).map(r => ({ ts: _ts(r[0]), role: String(r[1]), text: String(r[2]) }));
 }
 
+/** Starts a fresh conversation with the assistant: later messages are shown (and, when the assistant gains memory, used) on their own. */
+function startNewChat() {
+  withLock(() => _appendRow('Chat', [new Date().toISOString(), 'divider', 'new conversation']));
+  return { chatHistory: [] };
+}
 function saveChatMessage(role, text) {
   withLock(() => _appendRow('Chat', [new Date().toISOString(), role, _clip(text, LIMITS.text)]));
 }

@@ -5,6 +5,31 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.13 · build 2026.11.27 · 2026-11-25
+
+**Google Tasks on The Workday**
+- Google Tasks that are due today, or overdue, appear in the same **To do** list as your work items. In place of a work item number they say
+  **Google Task**, the title opens the task in Google Tasks, and anything the task points at (a linked email or document) is listed underneath
+- Tasks with no due date are left out, so your whole backlog does not land on the page. Nothing is ever changed in Google Tasks
+- A task you finish in Google Tasks moves to **Closed since the last refresh**; finishing one here saves a log entry like any other task
+- **One-time setup:** in your sheet, open Extensions → Apps Script, press **+** beside Services, choose **Google Tasks API**, then **Add**. Press
+  **Refresh Google Tasks** on The Workday and approve Google's permission screen once. Until then the page shows these same steps
+
+**The Workday refreshes twice a day**
+- The planner now runs at 6 AM and 3 PM on weekdays. The 3 PM run updates your work items, your calendar and your Google Tasks, and works out open
+  focus time from the rest of the day only
+- Work items that left your list since the morning (finished, merged, reassigned) move to **Closed since the last refresh**, where **Put back** undoes it.
+  Nothing is logged for them. Your Google Tasks are also refreshed at the 7 AM daily focus and with the **Refresh Google Tasks** button
+
+**New conversation (Assistant)**
+- A **New conversation** button clears the assistant's chat and starts clean. Earlier messages stay in your sheet, so a later version of the
+  assistant can use or show them
+
+**Goals Dashboard**
+- The Dashboard tab is now called **Goals Dashboard**
+
+**Needs the script update:** yes. Press **Update now**. Your sheet's Today tab gains one column (Links) by itself; nothing is changed or deleted.
+
 ## 1.12 · website only · script build stays 2026.11.26 · 2026-11-25
 
 **Choose whether The Workday shows your team objectives**
