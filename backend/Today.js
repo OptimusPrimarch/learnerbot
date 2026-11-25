@@ -7,9 +7,11 @@
 //
 // Tab columns (see TABS in Sheets.js):
 //   0 ID  1 Date  2 Title  3 Source (planner | me)  4 SourceID  5 Points  6 State  7 GoalID  8 Flags
-//   9 Status (open | done | skipped)  10 StatusDate  11 Minutes  12 LogID  13 Ref  14 Note
+//   9 Status (open | done | skipped | closed)  10 StatusDate  11 Minutes  12 LogID  13 Ref  14 Note  15 Links (JSON)
+//   Source is planner (work items), google-task (Google Tasks, see GTasks.js) or me (added by hand). closed = it left its source
+//   (finished or dropped there) since the last refresh.
 
-const TODAY_STATUSES = ['open', 'done', 'skipped'];
+const TODAY_STATUSES = ['open', 'done', 'skipped', 'closed'];
 const TODAY_MAX_ITEMS = 60;
 const TODAY_TITLE_MAX = 80;
 const TODAY_KEEP_DAYS = 45;      // older rows are removed whenever a feed arrives; their log entries stay
@@ -25,8 +27,22 @@ const _todayItem = r => ({
   status: TODAY_STATUSES.indexOf(String(r[9])) >= 0 ? String(r[9]) : 'open',
   doneOn: r[10] === '' || r[10] == null ? '' : _day(r[10]).slice(0, 10),
   minutes: r[11] === '' || r[11] == null ? 0 : _minutes(r[11]),
-  logId: String(r[12] || ''), note: String(r[14] || '')
+  logId: String(r[12] || ''), note: String(r[14] || ''), links: _parseLinks(r[15])
 });
+
+/** Links on an item (a Google Task and what it points at). Only https links to Google are kept, so nothing odd can be opened from here. */
+function _cleanLinks(list) {
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach(x => {
+    const u = String((x && (x.u || x.link)) || '').trim().slice(0, 400);
+    if (out.length < 3 && /^https:\/\/([a-z0-9-]+\.)*google\.com\/[^\s"<>]*$/i.test(u)) out.push({ u: u, d: _clip((x && (x.d || x.description)) || '', 40) });
+  });
+  return out;
+}
+function _parseLinks(raw) {
+  if (!raw) return [];
+  try { return _cleanLinks(JSON.parse(String(raw))); } catch (_) { return []; }
+}
 
 function _todayRows() { return rows('Today').filter(r => r[0] !== '' && r[0] != null); }
 
@@ -45,7 +61,7 @@ function getTodayView() {
   items.forEach(t => { have[t.source + '|' + (t.sourceId || t.title)] = true; });
   const carried = all.filter(t => t.date < today && t.date >= cutoff && t.status === 'open' && !have[t.source + '|' + (t.sourceId || t.title)]);
   const meta = _todayMeta();
-  return { date: today, fresh: !!meta && meta.date === today, feed: meta, items: items, carried: carried };
+  return { date: today, fresh: !!meta && meta.date === today, feed: meta, items: items, carried: carried, tasks: getGoogleTasksStatus() };
 }
 
 // ---- cleaning what arrives ------------------------------------
@@ -89,7 +105,43 @@ function _appendRows(name, list) {
 
 // ---- the feed from the planner --------------------------------
 
-/** Master connection only. Adds new items, refreshes the wording of ones it already has, and never touches a person's own choices. */
+/**
+ * Adds new items for `date` from one source, refreshes the wording of ones it already has (the person's own choices are never touched),
+ * and, when `complete` says the list is the whole truth, closes open items the source no longer lists. Call inside withLock.
+ */
+function _upsertItems(date, source, items, complete) {
+  let added = 0, updated = 0, closed = 0;
+  const fresh = [];
+  const seen = {};
+  let nextId = _nextId('Today');
+  items.forEach(x => {
+    seen[x.sourceId] = true;
+    const links = x.links && x.links.length ? JSON.stringify(x.links) : '';
+    const i = rows('Today').findIndex(r => r[0] !== '' && _day(r[1]).slice(0, 10) === date && String(r[3]) === source && String(r[4]) === x.sourceId);
+    if (i >= 0) {
+      const r = rows('Today')[i];
+      // Title, points, state, flags, note and links follow the source. Status, goal link, time and log entry are the person's.
+      _writeSpan('Today', i, 3, [x.title, source, x.sourceId, x.points, x.state, _cell(r[7]), x.flags]);   // Title .. Flags
+      _writeSpan('Today', i, 15, [x.note, links]);                                                          // Note, Links
+      updated++;
+    } else {
+      fresh.push([String(nextId++), date, x.title, source, x.sourceId, x.points, x.state, '', x.flags, 'open', '', '', '', '', x.note, links]);
+      added++;
+    }
+  });
+  _appendRows('Today', fresh);
+  if (complete) {
+    rows('Today').forEach((r, i) => {
+      if (r[0] !== '' && _day(r[1]).slice(0, 10) === date && String(r[3]) === source && String(r[9]) === 'open' && !seen[String(r[4])]) {
+        _writeSpan('Today', i, 10, ['closed', _today()]);   // Status, StatusDate
+        closed++;
+      }
+    });
+  }
+  return { added: added, updated: updated, closed: closed };
+}
+
+/** Master connection only. `complete: true` says this is the whole list of work items today, so ones missing from it are closed. */
 function setTodayFeed(a) {
   _needMaster();
   a = a || {};
@@ -101,32 +153,20 @@ function setTodayFeed(a) {
     sourceId: _clip(x && x.sourceId, 40), title: _clip(x && x.title, TODAY_TITLE_MAX), points: _cleanPoints(x && x.points),
     state: _clip(x && x.state, 30),
     flags: (Array.isArray(x && x.flags) ? x.flags : []).slice(0, 6).map(f => _clip(f, 24).replace(/,/g, ' ')).filter(Boolean).join(','),
-    note: _clip(x && x.note, 80)
+    note: _clip(x && x.note, 80), links: []
   })).filter(x => x.title && x.sourceId);
 
-  return withLock(() => {
-    const existing = _todayRows();
-    let added = 0, updated = 0;
-    const fresh = [];
-    let nextId = _nextId('Today');
-    incoming.forEach(x => {
-      const i = rows('Today').findIndex(r => r[0] !== '' && _day(r[1]).slice(0, 10) === date && String(r[3]) === 'planner' && String(r[4]) === x.sourceId);
-      if (i >= 0) {
-        const r = rows('Today')[i];
-        // Title, points, state, flags and note follow the source. Status, goal link, time and log entry are the person's.
-        _writeSpan('Today', i, 3, [x.title, String(r[3]), x.sourceId, x.points, x.state, _cell(r[7]), x.flags]);   // Title .. Flags
-        _writeSpan('Today', i, 15, [x.note]);
-        updated++;
-      } else {
-        fresh.push([String(nextId++), date, x.title, 'planner', x.sourceId, x.points, x.state, '', x.flags, 'open', '', '', '', '', x.note]);
-        added++;
-      }
-    });
-    _appendRows('Today', fresh);
+  const out = withLock(() => {
+    const previous = _todayRows().length;
+    const r = _upsertItems(date, 'planner', incoming, a.complete === true);
     _setTodayMeta(date, a.meta);
     const purged = _purgeOldToday();
-    return { added: added, updated: updated, purged: purged, count: incoming.length, previous: existing.length, view: getTodayView() };
+    return { added: r.added, updated: r.updated, closed: r.closed, purged: purged, count: incoming.length, previous: previous };
   });
+  // Google Tasks refresh with every feed (6 AM and 3 PM). Outside the lock above because it takes its own; it never throws.
+  out.tasks = refreshGoogleTasks();
+  out.view = getTodayView();
+  return out;
 }
 
 function _setTodayMeta(date, meta) { _putSetting(TODAY_META_KEY, JSON.stringify(_cleanFeedMeta(date, meta))); }
@@ -211,7 +251,7 @@ function completeTodayTask(a) {
     const g = rows('Goals').find(x => String(x[0]) === item.goalId);
     if (g) { const gt = _parseTags(g[5]); if (gt.length) tags = gt.slice(0, 4); }
   }
-  const text = 'Completed: ' + item.title + (item.sourceId ? ' [#' + item.sourceId + ']' : '');
+  const text = 'Completed: ' + item.title + (item.source === 'planner' && item.sourceId ? ' [#' + item.sourceId + ']' : '');   // only work items have a number worth keeping
   const entry = addJournalEntry(text, tags, mins, a.ref, a.replay === true);
   _writeSpan('Today', i, 10, ['done', _today(), mins, entry.id]);   // Status, StatusDate, Minutes, LogID
   maybePurge();
@@ -239,7 +279,7 @@ function buildTodayContext() {
   lines.push(open.length ? 'Open items:' : 'Open items: (none)');
   open.forEach(t => {
     const bits = [t.state, t.points != null ? t.points + ' pts' : '', t.flags.join('/'), t.note, t.goalId && goalName[t.goalId] ? 'linked to goal "' + goalName[t.goalId] + '"' : ''].filter(Boolean);
-    lines.push('- ' + (t.sourceId ? '#' + t.sourceId + ' ' : '') + t.title + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
+    lines.push('- ' + (t.source === 'google-task' ? 'Google Task: ' : (t.sourceId ? '#' + t.sourceId + ' ' : '')) + t.title + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
   });
   if (done) lines.push(done + ' item' + (done === 1 ? ' is' : 's are') + ' already done today.');
   if (f.objectives && f.objectives.length) {
