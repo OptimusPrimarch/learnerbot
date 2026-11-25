@@ -5,6 +5,26 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.8 · build 2026.11.25 · 2026-11-25
+
+**A Today tab: the day's work, apart from your goals**
+- A new **Today** tab lists the tasks for the day. They arrive each morning from a planner on your own computer (your calendar's
+  open time, your work items and your team's objectives), and you can add your own. Each task shows a short title and its ID, size,
+  state and any warnings (blocked, due soon, carried over). Open work from the last few days shows as **Carried over**
+- Linking a task to a goal is optional, and you can change or remove the link at any time
+- Checking a task off asks **how long it took** (quick picks of 15 minutes to 2 hours, or skip the time) and saves it to your Log,
+  tagged from the goal if you linked one. **Undo** (the bar at the bottom) takes the log entry back; a finished task can also be
+  put back on the list later. Tasks can be skipped for the day
+- Works offline like everything else: changes are kept on the device and sent in order, and nothing is logged twice
+- The 7am daily focus now reads the day's plan (short titles and IDs only), says so plainly when no fresh plan arrived, and the
+  weekly review hears how many of the week's tasks were finished
+- Phone and computer: large tap targets, one row of tabs on a phone, works with every theme and with a screen reader or keyboard
+
+**What is sent:** the planner sends your sheet only short titles, IDs, sizes, states, warnings and the open time windows. Meeting
+names, links, descriptions and people are never sent. Only the main connection (the computer you pasted the token into) can deliver a plan.
+
+**Needs the script update:** yes. Press **Update now**. Your sheet gets a new **Today** tab by itself; nothing is changed or deleted.
+
 ## 1.7 · build 2026.10.14 · 2026-10-19
 
 **Keep your own coach voices (Settings > Coach voice)**

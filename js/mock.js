@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.10.14';
-  const RELEASE = '1.7';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.11.25';
+  const RELEASE = '1.8';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -52,6 +52,8 @@ const Mock = (() => {
       ],
       chat: [],
       notify: { daily: { enabled: false, hour: 7 }, weekly: { enabled: false, day: 0, hour: 18 }, nudge: { enabled: false, hour: 20 } },
+      today: [],
+      todayMeta: null,
       reports: {
         daily: { date: new Date().toISOString(), type: 'daily', score: '', data: {
           focus: 'Build the file-renaming CLI',
@@ -72,6 +74,8 @@ const Mock = (() => {
         s.goals.forEach(g => { if (g.due == null) g.due = ''; if (g.since == null) g.since = g.status === 'active' ? '' : iso(0); if (g.kept == null) g.kept = false; });
         s.journal.forEach((j, i) => { if (!j.id) j.id = String(i + 1); if (j.removed == null) j.removed = ''; });
         s.housekeeping = s.housekeeping || { purgeDays: 30, lastReview: iso(0) };
+        s.today = Array.isArray(s.today) ? s.today : [];
+        s.todayMeta = s.todayMeta || null;
         return s;
       }
     } catch (_) { /* fall through */ }
@@ -89,6 +93,38 @@ const Mock = (() => {
     return n;
   }
 
+  // ---- Today tab (mirrors backend/Today.js; the demo makes up a plan for today so the page has something to show) ----
+  const T_STATUS = ['open', 'done', 'skipped'];
+  function demoFeed() {
+    const d = iso(0);
+    const mk = (n, sourceId, title, points, state, flags, note) => ({ id: String(n), date: d, title, source: 'planner', sourceId, points, state, goalId: '', flags, status: 'open', doneOn: '', minutes: 0, logId: '', note });
+    db.today = db.today.filter(t => t.source !== 'planner' || t.date !== d).concat([
+      mk(nextId(db.today), '2041', 'Review the sorting exercise PR', 1, 'PR Ready', [], ''),
+      mk(String(parseInt(nextId(db.today), 10) + 1), '2057', 'Write the data structures summary', 5, 'Active', ['DUE-IN-2d'], 'Finish the data structures course'),
+      mk(String(parseInt(nextId(db.today), 10) + 2), '2063', 'Set up the practice repo', 3, 'New', ['CARRIED-OVER'], '')
+    ]);
+    db.todayMeta = { date: d, at: new Date().toISOString(), budget: 1.8,
+      focus: [{ start: '09:30', end: '12:00', minutes: 150 }, { start: '13:00', end: '17:00', minutes: 240 }], busy: [{ start: '09:00', end: '09:30' }, { start: '12:00', end: '13:00' }],
+      objectives: [{ key: '1', name: 'Learn Python fundamentals', progress: 40, due: '12/31' }, { key: '2', name: 'Finish the data structures course', progress: 15, due: '1/31' }] };
+    save();
+  }
+  function todayView() {
+    if (!db.todayMeta || db.todayMeta.date !== iso(0)) demoFeed();
+    const d = iso(0);
+    return { date: d, fresh: true, feed: db.todayMeta, items: db.today.filter(t => t.date === d).map(t => ({ ...t })), carried: [] };
+  }
+  function todayItem(id) {
+    const t = db.today.find(x => x.id === String(id));
+    if (!t) throw notFound('That task was not found.');
+    return t;
+  }
+  function tGoal(goalId) {
+    const g = goalId === '' || goalId == null ? '' : String(goalId);
+    need(!g || db.goals.some(x => x.id === g), 'That goal does not exist.');
+    return g;
+  }
+
+
   function state() {
     return {
       goals: db.goals.filter(g => g.status !== 'archived'),
@@ -105,6 +141,7 @@ const Mock = (() => {
       myVoices: db.myVoices || [],
       appearance: db.appearance || null,
       housekeeping: housekeeping(),
+      today: todayView(),
       notify: notifyView(),
       role: 'master',
       hasKey: true,
@@ -375,6 +412,35 @@ const Mock = (() => {
       }
       case 'setTaskStatus':  setStatus(db.tasks, a, ['active', 'done', 'removed']); save(); return { ok: true };
       case 'logActivity':    { const entry = logActivity(a); save(); return { entry, streak: streak(), weekMinutes: weekMinutes() }; }
+      case 'getToday':       return todayView();
+      case 'setTodayFeed':   return { added: 0, updated: 0, purged: 0, count: 0, view: todayView() };
+      case 'addTodayTask': {
+        const title = clip(a.title, 80);
+        need(title, 'A task needs a title.');
+        const t = { id: nextId(db.today), date: iso(0), title, source: 'me', sourceId: '', points: null, state: '', goalId: tGoal(a.goalId), flags: [], status: 'open', doneOn: '', minutes: 0, logId: '', note: '' };
+        db.today.push(t); save();
+        return { task: { ...t } };
+      }
+      case 'setTodayGoal':   { const t = todayItem(a.id); t.goalId = tGoal(a.goalId); save(); return { task: { ...t } }; }
+      case 'setTodayStatus': {
+        need(a.status === 'open' || a.status === 'skipped', 'Use completeTodayTask to finish a task.');
+        const t = todayItem(a.id);
+        let out = {};
+        if (t.status === 'done' && t.logId) { const r = removeLog({ id: t.logId }); out = { streak: r.streak, weekMinutes: r.weekMinutes }; }
+        t.status = a.status; t.doneOn = a.status === 'open' ? '' : iso(0); t.minutes = 0; t.logId = '';
+        save();
+        return { task: { ...t }, ...out };
+      }
+      case 'completeTodayTask': {
+        const t = todayItem(a.id);
+        if (t.status === 'done') return { task: { ...t }, entry: null, streak: streak(), weekMinutes: weekMinutes() };
+        const mins = cleanMinutes(a.minutes);
+        const g = t.goalId ? db.goals.find(x => x.id === t.goalId) : null;
+        const entry = logActivity({ text: 'Completed: ' + t.title + (t.sourceId ? ' [#' + t.sourceId + ']' : ''), tags: g && g.tags.length ? g.tags.slice(0, 4) : ['TASK'], minutes: mins });
+        t.status = 'done'; t.doneOn = iso(0); t.minutes = mins; t.logId = entry.id;
+        save();
+        return { task: { ...t }, entry, streak: streak(), weekMinutes: weekMinutes() };
+      }
       case 'getLog':         return getLog(a);
       case 'updateLog':      { const r = updateLog(a); save(); return r; }
       case 'removeLog':      { const r = removeLog(a); save(); return r; }
