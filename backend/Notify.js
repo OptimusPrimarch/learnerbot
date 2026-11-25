@@ -15,7 +15,7 @@ const NOTIFY_DEFAULTS = {
   nudge:  { enabled: false, hour: 20 }
 };
 const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-const JOB_HANDLERS = ['_dailyJob', '_weeklyJob', '_nudgeJob'];
+const JOB_HANDLERS = ['_dailyJob', '_weeklyJob', '_nudgeJob', '_workdayJob'];
 const TEST_EMAILS_PER_HOUR = 5;
 
 // ---- Settings -----------------------------------------------
@@ -67,6 +67,50 @@ function saveNotifications(a) {
 
 // ---- Triggers (one per switched-on schedule) ----------------
 
+// ---- The Workday's own refresh (no email): Google Tasks and Google Calendar on weekdays, at the hours the person chose ----
+
+const WORKDAY_DEFAULT_HOURS = [6, 15];
+
+function _loaderVersion() {
+  try { return typeof LB_LOADER_VERSION === 'number' ? LB_LOADER_VERSION : 1; } catch (_) { return 1; }
+}
+
+function _workdaySettings() {
+  let s = {};
+  try { s = JSON.parse(_props().getProperty('WORKDAY') || '{}') || {}; } catch (_) { s = {}; }
+  const hours = (Array.isArray(s.hours) ? s.hours : []).map(Number).filter(h => Number.isInteger(h) && h >= 0 && h <= 23).slice(0, 4);
+  return { enabled: s.enabled === true, hours: hours.length ? hours : WORKDAY_DEFAULT_HOURS.slice() };
+}
+
+/** What the page shows: whether it runs, when, and whether this copy of Code.gs can run a timer for it (loader version 2 or newer). */
+function getWorkdaySchedule() {
+  const s = _workdaySettings(), loader = _loaderVersion();
+  return { enabled: s.enabled, hours: s.hours, loader: loader, canSchedule: loader >= 2, tz: _tzName() };
+}
+
+function saveWorkdaySchedule(a) {
+  _needMaster();
+  if (_loaderVersion() < 2) throw _err('needs_loader', 'Automatic refresh needs a one-time paste of the newest Code.gs into your sheet (the update page explains how), because the timer is part of that file.');
+  a = a || {};
+  const hours = Array.from(new Set((Array.isArray(a.hours) ? a.hours : []).map(h => _int(h, 0, 23, 'An hour')))).sort((x, y) => x - y);
+  if (!hours.length || hours.length > 4) throw _err('bad_request', 'Choose between one and four times.');
+  _props().setProperty('WORKDAY', JSON.stringify({ enabled: a.enabled === true, hours: hours }));
+  _syncTriggers(_notifySettings());
+  return { schedule: getWorkdaySchedule() };
+}
+
+/** Timer entry point. Weekdays only (a timer cannot say "weekdays", so it checks). Never throws. */
+function _workdayJob() {
+  try {
+    if (!_workdaySettings().enabled) return;
+    if (Number(Utilities.formatDate(new Date(), _tzName(), 'u')) >= 6) return;   // 1 = Monday ... 7 = Sunday
+    refreshGoogleTasks();
+    refreshGoogleCalendar();
+  } catch (e) {
+    _logJobError('workday', e);
+  }
+}
+
 function _syncTriggers(s) {
   ScriptApp.getProjectTriggers()
     .filter(t => JOB_HANDLERS.indexOf(t.getHandlerFunction()) >= 0)
@@ -76,6 +120,8 @@ function _syncTriggers(s) {
   if (s.daily.enabled)  ScriptApp.newTrigger('_dailyJob').timeBased().inTimezone(tz).atHour(s.daily.hour).everyDays(1).create();
   if (s.weekly.enabled) ScriptApp.newTrigger('_weeklyJob').timeBased().inTimezone(tz).onWeekDay(ScriptApp.WeekDay[WEEKDAYS[s.weekly.day]]).atHour(s.weekly.hour).create();
   if (s.nudge.enabled)  ScriptApp.newTrigger('_nudgeJob').timeBased().inTimezone(tz).atHour(s.nudge.hour).everyDays(1).create();
+  const w = _workdaySettings();
+  if (w.enabled && _loaderVersion() >= 2) w.hours.forEach(h => ScriptApp.newTrigger('_workdayJob').timeBased().inTimezone(tz).atHour(h).everyDays(1).create());
 }
 
 /** Sheet-menu panic button: every schedule off, hours remembered. */
@@ -84,7 +130,7 @@ function menuEmailsOff() {
   ['daily', 'weekly', 'nudge'].forEach(k => { s[k].enabled = false; });
   _props().setProperty('NOTIFY', JSON.stringify(s));
   _syncTriggers(s);
-  SpreadsheetApp.getUi().alert('All scheduled emails are off and nothing runs on a schedule now. You can turn them back on in the LearnerBot site: \u2699 \u2192 Email updates.');
+  SpreadsheetApp.getUi().alert('All scheduled emails are off. (The Workday\'s own refresh, if you turned it on, is separate and keeps running.) You can turn emails back on in the LearnerBot site: \u2699 \u2192 Email updates.');
 }
 
 // ---- Scheduled jobs -----------------------------------------

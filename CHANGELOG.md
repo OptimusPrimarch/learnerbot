@@ -5,6 +5,21 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.15 · build 2026.11.29 · 2026-11-25
+
+**Authorize Google from the sheet menu, and a refresh that runs inside your sheet**
+- **LearnerBot > Authorize Google (Calendar and Tasks)** is a new item in your sheet's menu. It asks Google for the Calendar and Tasks permissions in one step.
+  Until now the permission could be missed, because Google only asks for what it can see written in the script itself
+- The Workday has an **Automatic refresh** panel. Switch it on and your sheet refreshes your Google Tasks and Google Calendar by itself on
+  weekdays (6 AM and 3 PM unless you choose other times), even when your computer is off. Outlook, work items and WAYD still come from the planner
+- The permission-error steps on The Workday are now exact: Authorize Google, then a new deployment version if it still fails
+- Plain line endings in all files (no visible change)
+
+**This release needs a one-time paste of Code.gs.** The menu item and the timer are part of the small loader at the top of Code.gs, which "Update now"
+cannot change. After the paste, Update now works as before. Until you paste it, everything else in this release works and the Automatic refresh panel
+explains what to do. Steps: open `update.html`, copy the code, paste it over Code.gs in Extensions > Apps Script, Save, then Deploy > Manage deployments >
+the pencil > New version > Deploy. Your `Authorize` file and your settings are not touched.
+
 ## 1.14 · build 2026.11.28 · 2026-11-25
 
 **Your Google calendars, read inside your sheet**

@@ -66,7 +66,7 @@ function getTodayView() {
   // With a schedule, `feed` carries the merged windows even before the planner has delivered today's plan.
   const feed = sched ? Object.assign({}, meta || { date: today, at: '', objectives: [] },
     { busy: sched.busy, focus: sched.focus, budget: sched.budget, allDay: sched.allDay, sources: sched.sources }) : meta;
-  return { date: today, fresh: !!meta && meta.date === today, feed: feed, items: items, carried: carried, tasks: getGoogleTasksStatus(), calendar: gcal };
+  return { date: today, fresh: !!meta && meta.date === today, feed: feed, items: items, carried: carried, tasks: getGoogleTasksStatus(), calendar: gcal, schedule: getWorkdaySchedule() };
 }
 
 // ---- cleaning what arrives ------------------------------------

@@ -39,6 +39,7 @@ function makeSheet(name) {
 function load(repoRoot, opts) {
   opts = opts || {};
   const sheets = {};
+  const alerts = [], menus = [], triggers = [];
   const ss = {
     getSheetByName: n => sheets[n] || null,
     insertSheet: n => (sheets[n] = makeSheet(n)),
@@ -51,7 +52,9 @@ function load(repoRoot, opts) {
   let groqAnswer = '{"focus":"Test focus","actions":["a1","a2"],"reason":"because"}';
   const ctx = {
     console, Date, JSON, Math, Object, Array, String, Number, Error, Set, Map, Promise, Intl, RegExp, parseInt, parseFloat, isNaN, Boolean,
-    SpreadsheetApp: { openById: () => ss, getActiveSpreadsheet: () => ss },
+    SpreadsheetApp: { openById: () => ss, getActiveSpreadsheet: () => ss, getUi: () => ({
+      alert: m => { alerts.push(String(m)); return 'OK'; },
+      createMenu: name => { const m = { name, items: [], addItem(l, f) { m.items.push([l, f]); return m; }, addSeparator() { return m; }, addToUi() { menus.push(m); } }; return m; } }) },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: k => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = String(v); },
       getProperties: () => ({ ...store }), setProperties: o => Object.assign(store, o), deleteProperty: k => { delete store[k]; } }) },
@@ -64,6 +67,7 @@ function load(repoRoot, opts) {
         const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)
           .reduce((o, x) => { o[x.type] = x.value; return o; }, {});
         if (fmt === 'HH:mm') return new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
+        if (fmt === 'u') return String({ Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d)]);
         if (fmt === 'yyyy') return p.year;
         if (fmt === 'EEEE') return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(d);
         return p.year + '-' + p.month + '-' + p.day;
@@ -79,7 +83,13 @@ function load(repoRoot, opts) {
       groqCalls.push(JSON.parse(o.payload));
       return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ choices: [{ message: { content: groqAnswer }, finish_reason: 'stop' }] }) };
     } },
-    ScriptApp: { WeekDay: {}, getProjectTriggers: () => [], deleteTrigger: () => {}, newTrigger: () => { throw new Error('triggers are not part of these tests'); }, getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/AKfycbTEST/exec' }) },
+    ScriptApp: { WeekDay: {}, getProjectTriggers: () => triggers.slice(),
+      deleteTrigger: t => { const i = triggers.indexOf(t); if (i >= 0) triggers.splice(i, 1); },
+      newTrigger: h => {
+        const t = { handler: h, hour: null, kind: null, getHandlerFunction: () => h };
+        const b = { timeBased: () => b, inTimezone: () => b, atHour: x => { t.hour = x; return b; }, everyDays: () => { t.kind = 'daily'; return b; }, onWeekDay: () => { t.kind = 'weekly'; return b; }, create: () => { triggers.push(t); return t; } };
+        return b;
+      }, getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/AKfycbTEST/exec' }) },
     MailApp: { sendEmail: () => {} }, HtmlService: { createHtmlOutput: s => ({ s }) },
     Logger: { log: () => {} }
   };
@@ -109,6 +119,8 @@ function load(repoRoot, opts) {
   let gs = fs.readFileSync(path.join(repoRoot, 'backend-latest.gs'), 'utf8');
   // opts.asVersion makes the built-in copy claim an older build, like a sheet that has not been updated yet (the loader is the real one).
   if (opts.asVersion) gs = gs.replace(/const APP_VERSION = '[^']+'/, "const APP_VERSION = '" + opts.asVersion + "'").replace(/const LB_BUILTIN_VERSION = '[^']+'/, "const LB_BUILTIN_VERSION = '" + opts.asVersion + "'");
+  // opts.oldLoader removes the loader-2 pieces, like a sheet whose Code.gs was pasted before they existed.
+  if (opts.oldLoader) gs = gs.replace(/const LB_LOADER_VERSION = \d+;/, '').replace('    loader: LB_LOADER_VERSION,\n', '');
   vm.runInContext(gs, ctx, { filename: 'backend-latest.gs' });
 
   function call(action, args, token) {
@@ -117,7 +129,7 @@ function load(repoRoot, opts) {
     return JSON.parse(out.getContent());
   }
   const ok = (action, args) => { const r = call(action, args); if (!r.ok) throw new Error(action + ' failed: ' + r.code + ' ' + r.error); return r.data; };
-  return { call, ok, store, groqCalls, tasksCalls, calendarCalls, sheets, setGroq: s => { groqAnswer = s; }, ctx };
+  return { call, ok, store, groqCalls, tasksCalls, calendarCalls, alerts, menus, triggers, sheets, setGroq: s => { groqAnswer = s; }, ctx };
 }
 
 const ymd = (offsetDays, tz) => {
