@@ -5,6 +5,22 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.14 · build 2026.11.28 · 2026-11-25
+
+**Your Google calendars, read inside your sheet**
+- Your sheet's script now reads your Google calendars itself (your main calendar and every one ticked in Google Calendar's list), so The Workday
+  no longer needs the private calendar link or anything on your computer for the Google half. Nothing is created, changed or deleted in Google
+- Nothing is filtered out: all-day items, out-of-office and "free" events are all counted. They are only treated differently for open time,
+  because an all-day item has no hours and a "free" event (or Google's own Focus time) does not use up time
+- **Your day** now merges your Outlook windows (from the planner) with your Google windows, and counts open focus time from **now** to the end of
+  your work day, so it is right at 3 PM as well as 6 AM. If your Outlook calendar has not arrived, it says so instead of guessing
+- Only times are kept in your sheet: event names stay in Google (the planner on your computer can ask for them to print one combined calendar)
+- The **Refresh Google** button refreshes your Google Tasks and your Google Calendar together; both also refresh at 6 AM, 3 PM and the 7 AM daily focus
+- **One-time setup:** in your sheet, Extensions → Apps Script, **+** beside Services, **Google Calendar API**, **Add**. Then press **Refresh Google**
+  on The Workday and approve Google's permission screen. Until then the page shows these steps and keeps using what the planner sent
+
+**Needs the script update:** yes. Press **Update now**.
+
 ## 1.13 · build 2026.11.27 · 2026-11-25
 
 **Google Tasks on The Workday**

@@ -61,7 +61,12 @@ function getTodayView() {
   items.forEach(t => { have[t.source + '|' + (t.sourceId || t.title)] = true; });
   const carried = all.filter(t => t.date < today && t.date >= cutoff && t.status === 'open' && !have[t.source + '|' + (t.sourceId || t.title)]);
   const meta = _todayMeta();
-  return { date: today, fresh: !!meta && meta.date === today, feed: meta, items: items, carried: carried, tasks: getGoogleTasksStatus() };
+  const gcal = getGoogleCalStatus();
+  const sched = _scheduleFor(meta, gcal);
+  // With a schedule, `feed` carries the merged windows even before the planner has delivered today's plan.
+  const feed = sched ? Object.assign({}, meta || { date: today, at: '', objectives: [] },
+    { busy: sched.busy, focus: sched.focus, budget: sched.budget, allDay: sched.allDay, sources: sched.sources }) : meta;
+  return { date: today, fresh: !!meta && meta.date === today, feed: feed, items: items, carried: carried, tasks: getGoogleTasksStatus(), calendar: gcal };
 }
 
 // ---- cleaning what arrives ------------------------------------
@@ -74,6 +79,15 @@ function _cleanPoints(v) {
 
 function _cleanHm(v) { return /^\d{2}:\d{2}$/.test(String(v || '')) ? String(v) : ''; }
 
+/** The work day the schedule is computed with (set in the planner's .env); anything odd falls back to the defaults. */
+function _cleanSettings(s) {
+  s = s && typeof s === 'object' ? s : {};
+  const hm = (v, d) => (/^\d{2}:\d{2}$/.test(String(v)) && _toMin(v) < 1440 ? String(v) : d);
+  const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : d; };
+  return { workStart: hm(s.workStart, WORK_DEFAULTS.workStart), workEnd: hm(s.workEnd, WORK_DEFAULTS.workEnd),
+    minFocus: Math.round(num(s.minFocus, 15, 240, WORK_DEFAULTS.minFocus)), hoursPerPoint: num(s.hoursPerPoint, 0.5, 24, WORK_DEFAULTS.hoursPerPoint) };
+}
+
 function _cleanFeedMeta(date, m) {
   m = m && typeof m === 'object' ? m : {};
   const list = (x, max) => (Array.isArray(x) ? x.slice(0, max) : []);
@@ -85,6 +99,8 @@ function _cleanFeedMeta(date, m) {
     focus: list(m.focus, 12).map(win).filter(w => w.start && w.end),
     busy: list(m.busy, 30).map(w => ({ start: _cleanHm(w && w.start), end: _cleanHm(w && w.end), src: w && (w.src === 'Outlook' || w.src === 'Google') ? w.src : '' })).filter(w => w.start && w.end),
     allDay: Math.max(0, Math.min(20, Math.round(Number(m.allDay) || 0))),   // how many all-day items, never their names
+    outlookKnown: m.outlookKnown !== false,                                  // false: the planner had no Outlook calendar for today
+    settings: _cleanSettings(m.settings),
     objectives: list(m.objectives, 12).map(o => ({
       key: _clip(o && o.key, 12), name: _clip(o && o.name, 80),
       progress: Math.max(0, Math.min(100, Math.round(Number(o && o.progress) || 0))), due: _clip(o && o.due, 10)
@@ -165,6 +181,7 @@ function setTodayFeed(a) {
   });
   // Google Tasks refresh with every feed (6 AM and 3 PM). Outside the lock above because it takes its own; it never throws.
   out.tasks = refreshGoogleTasks();
+  out.calendar = refreshGoogleCalendar();
   out.view = getTodayView();
   return out;
 }
@@ -264,14 +281,19 @@ function completeTodayTask(a) {
 function buildTodayContext() {
   const v = getTodayView();
   const lines = ['TODAY\'S WORK PLAN (sent by the user\'s planner; titles are shortened; refer to work items by their ID):'];
+  const f = v.feed;
+  const scheduleLines = () => {
+    if (f.sources && f.sources.outlook === 'missing') lines.push('(Outlook calendar did not arrive today, so booked time may be understated)');
+    if (f.focus && f.focus.length) lines.push('Open focus time: ' + f.focus.map(w => w.start + '-' + w.end + ' (' + _fmtMinutes(w.minutes) + ')').join(', '));
+    if (f.busy && f.busy.length) lines.push('Booked: ' + f.busy.map(w => w.start + '-' + w.end + (w.src ? ' (' + w.src + ')' : '')).join(', '));
+    if (f.budget !== '' && f.budget != null) lines.push('Realistic budget today: about ' + f.budget + ' story points of work');
+  };
   if (!v.fresh) {
-    lines.push('(no fresh plan arrived today, so do not assume any work items)' + (v.feed && v.feed.date ? ' Last plan was for ' + v.feed.date + '.' : ''));
+    lines.push('(no fresh plan arrived today, so do not assume any work items)' + (f && f.date ? ' Last plan was for ' + f.date + '.' : ''));
+    if (f && f.sources && f.sources.google === 'ok') scheduleLines();   // open time is still known from the Google calendar
     return lines.join('\n');
   }
-  const f = v.feed;
-  if (f.focus && f.focus.length) lines.push('Open focus time: ' + f.focus.map(w => w.start + '-' + w.end + ' (' + _fmtMinutes(w.minutes) + ')').join(', '));
-  if (f.busy && f.busy.length) lines.push('Booked: ' + f.busy.map(w => w.start + '-' + w.end + (w.src ? ' (' + w.src + ')' : '')).join(', '));
-  if (f.budget !== '' && f.budget != null) lines.push('Realistic budget today: about ' + f.budget + ' story points of work');
+  scheduleLines();
   const goalName = {};
   getActiveGoals().forEach(g => { goalName[g.id] = g.title; });
   const open = v.items.filter(t => t.status === 'open').slice(0, TODAY_COACH_ITEMS);

@@ -91,7 +91,8 @@ function menuEmailsOff() {
 
 function _dailyJob() {
   _runJob('daily', () => {
-    refreshGoogleTasks();   // never throws; the coach hears today's Google Tasks too
+    refreshGoogleTasks();      // neither throws; the coach hears today's Google Tasks and calendar too
+    refreshGoogleCalendar();
     const r = generateDaily();
     _sendMail('Daily focus: ' + _oneLine(r.focus), _dailyHtml(r));
   });

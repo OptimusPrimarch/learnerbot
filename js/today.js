@@ -131,14 +131,34 @@ function todayHead(t) {
   </section>`;
 }
 
-/** The day's shape from the feed: booked windows (tagged Outlook or Google) and open focus windows, in time order. Names never arrive here. */
-function todayDay(f) {
-  if (!f) return '';
+/**
+ * The day's shape: booked windows (tagged Outlook or Google) and open focus windows, in time order. Only times arrive here, never names.
+ * It also says where each calendar stands: Outlook not here yet, or Google not turned on or not readable.
+ */
+function todayDay(t) {
+  const f = t.feed, cal = t.calendar, src = (f && f.sources) || {};
   const rows = [];
-  arr(f.busy).forEach(w => rows.push({ start: w.start, end: w.end, kind: 'busy', src: w.src || '' }));
-  arr(f.focus).forEach(w => rows.push({ start: w.start, end: w.end, kind: 'open', minutes: w.minutes }));
-  if (!rows.length && !f.allDay) return '';
-  rows.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : (a.kind === 'busy' ? -1 : 1)));
+  if (f) {
+    arr(f.busy).forEach(w => rows.push({ start: w.start, end: w.end, kind: 'busy', src: w.src || '' }));
+    arr(f.focus).forEach(w => rows.push({ start: w.start, end: w.end, kind: 'open', minutes: w.minutes }));
+  }
+  const notes = [];
+  if (cal && cal.error) {
+    const perm = /author|permission|scope|access|consent/i.test(cal.error);
+    notes.push(`<p class="cfg-msg err" role="alert">Google Calendar could not be read: ${esc(cal.error)}${perm ? ' Open your sheet, run any LearnerBot menu item once and approve Google\'s permission screen, then press Refresh Google.' : ''}</p>`);
+  } else if (cal && cal.enabled === false) {
+    const hk = 'today-gcal-help';
+    notes.push(`<details class="t-help" data-key="${hk}"${OPEN_DETAILS.has(hk) ? ' open' : ''}><summary>Bring in your Google Calendar</summary>
+      <ol class="t-steps"><li>In your sheet, open <b>Extensions → Apps Script</b>.</li>
+        <li>Beside <b>Services</b>, press <b>+</b>, choose <b>Google Calendar API</b>, then <b>Add</b>.</li>
+        <li>Come back here and press <b>Refresh Google</b>. Google asks you to approve it once.</li></ol>
+      <p class="muted">Your main calendar and any you have ticked are read. Nothing is changed in Google Calendar, and event names stay in Google.</p></details>`);
+  }
+  if (src.outlook === 'missing' && rows.length) {
+    notes.push(`<p class="muted" style="font-size:14px">Your Outlook calendar has not arrived today, so only Google bookings are counted until the planner runs.</p>`);
+  }
+  if (!rows.length && !(f && f.allDay) && !notes.length) return '';
+  rows.sort((x, y) => (x.start < y.start ? -1 : x.start > y.start ? 1 : (x.kind === 'busy' ? -1 : 1)));
   const key = 'today-day';
   if (!todayDayInit) { OPEN_DETAILS.add(key); todayDayInit = true; }
   const list = rows.map(r => `<li class="t-day-row ${r.kind}">
@@ -147,11 +167,12 @@ function todayDay(f) {
         ? `<span><span class="pill completed">Open focus</span> <span class="muted">${esc(fmtMinutes(r.minutes || 0))}</span></span>`
         : `<span><span class="pill">Booked</span>${r.src ? ` <span class="muted">${esc(r.src)}</span>` : ''}</span>`}
     </li>`).join('');
-  const allDay = f.allDay ? `<p class="muted" style="margin-top:8px;font-size:14px">${esc(f.allDay)} all-day item${f.allDay === 1 ? '' : 's'} on your calendar (these do not take up time).</p>` : '';
+  const allDay = f && f.allDay ? `<p class="muted" style="margin-top:8px;font-size:14px">${esc(f.allDay)} all-day item${f.allDay === 1 ? '' : 's'} on your calendar (these do not take up time).</p>` : '';
   return `<section class="card wide t-sec" aria-label="Your day"><details data-key="${key}"${OPEN_DETAILS.has(key) ? ' open' : ''}>
     <summary>Your day, both calendars</summary>
-    <ul class="t-day-list">${list || '<li class="muted">Nothing timed today.</li>'}</ul>${allDay}
-    <p class="muted" style="margin-top:8px;font-size:12px">Event names stay on your computer; only times arrive here.</p>
+    ${notes.join('')}
+    <ul class="t-day-list">${list || '<li class="muted">Nothing timed for the rest of today.</li>'}</ul>${allDay}
+    <p class="muted" style="margin-top:8px;font-size:12px">Open time counts from now to the end of your work day. Event names stay in your Google and Outlook accounts; only times are kept here.</p>
   </details></section>`;
 }
 
@@ -189,14 +210,14 @@ function tasksNote(g) {
   const when = g.at ? new Date(g.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
   if (g.error) {
     const perm = /author|permission|scope|access|consent/i.test(g.error);
-    return `<p class="cfg-msg err" role="alert">Google Tasks could not be read: ${esc(g.error)}${perm ? ' Open your sheet, run any LearnerBot menu item once and approve Google\'s permission screen, then press Refresh Google Tasks.' : ''}</p>`;
+    return `<p class="cfg-msg err" role="alert">Google Tasks could not be read: ${esc(g.error)}${perm ? ' Open your sheet, run any LearnerBot menu item once and approve Google\'s permission screen, then press Refresh Google.' : ''}</p>`;
   }
   if (!g.enabled) {
     const key = 'today-gt-help';
     return `<details class="t-help" data-key="${key}"${OPEN_DETAILS.has(key) ? ' open' : ''}><summary>Bring in your Google Tasks</summary>
       <ol class="t-steps"><li>In your sheet, open <b>Extensions → Apps Script</b>.</li>
         <li>Beside <b>Services</b>, press <b>+</b>, choose <b>Google Tasks API</b>, then <b>Add</b>.</li>
-        <li>Come back here and press <b>Refresh Google Tasks</b>. Google asks you to approve it once.</li></ol>
+        <li>Come back here and press <b>Refresh Google</b>. Google asks you to approve it once.</li></ol>
       <p class="muted">Tasks due today or overdue then appear in this list, each with a link back to the task. Nothing is changed in Google Tasks.</p></details>`;
   }
   return `<p class="muted t-gt-sum" role="status">${g.count ? esc(g.count) + ' Google Task' + (g.count === 1 ? '' : 's') + ' due today or overdue' : 'No Google Tasks due today'}${when ? ' · checked ' + esc(when) : ''}</p>`;
@@ -209,7 +230,7 @@ function todoSection(t, todo, total) {
     : `<p class="empty">${total ? 'Everything on today\'s list is handled. Nice.' : 'Nothing on the list yet. Add a task above, or wait for the morning plan.'}</p>`;
   return `<section class="card wide t-sec" aria-label="To do">
     <div class="card-head"><label class="head">To do <span class="muted">(${todo.length})</span></label>
-      ${g ? '<button type="button" class="ghost run" id="gtRefresh" data-act="todayRefreshTasks">Refresh Google Tasks</button>' : ''}</div>
+      ${g ? '<button type="button" class="ghost run" id="gtRefresh" data-act="todayRefreshTasks">Refresh Google</button>' : ''}</div>
     ${tasksNote(g)}${body}
   </section>`;
 }
@@ -229,7 +250,7 @@ function renderToday() {
   }
   const items = arr(t.items), carried = arr(t.carried);
   const todo = items.filter(i => i.status === 'open');
-  let html = todayHead(t) + todayDay(t.feed);
+  let html = todayHead(t) + todayDay(t);
   if (!t.fresh) {
     html += `<div class="notice warn wide-notice" role="status"><div><b>No fresh plan arrived today.</b>
       <div class="muted">${t.feed && t.feed.date ? 'The last plan was for ' + esc(dayLabel(t.feed.date)) + '. ' : ''}Your coach plans from your goals alone until one arrives. You can still add tasks by hand below, and the planner can be run again from your computer.</div></div></div>`;
@@ -378,24 +399,19 @@ Object.assign(HANDLERS, {
   todaySkip:   d => todaySetStatus(d.id, 'skipped', 'Skipping', 'Skipped'),
   todayReopenSkipped: d => todaySetStatus(d.id, 'open', 'Putting back', ''),
   todayAdd:    () => todayAddNow(),
-  todayRefreshTasks: () => {
+  todayRefreshTasks: () => {   // "Refresh Google": Google Tasks and Google Calendar together
     const b = $('gtRefresh');
     if (b) b.disabled = true;
-    request('Refreshing Google Tasks', 'refreshTasks')
+    request('Refreshing Google', 'refreshGoogle')
       .then(({ res, latest }) => {
         if (latest && STATE && res.view) STATE.today = res.view; else needsResync = true;   // newer local changes are still going out
         settle();
-        const bad = res.tasks && res.tasks.error;
-        toast(bad ? 'Google Tasks: ' + res.tasks.error : (res.tasks && res.tasks.enabled ? 'Google Tasks refreshed.' : 'Google Tasks is not turned on in your sheet yet.'), bad ? 'error' : '');
+        const errs = [res.tasks && res.tasks.error, res.calendar && res.calendar.error].filter(Boolean);
+        const anyOn = (res.tasks && res.tasks.enabled) || (res.calendar && res.calendar.enabled);
+        toast(errs.length ? 'Google: ' + errs.join(' · ') : (anyOn ? 'Google Tasks and Calendar refreshed.' : 'Google is not turned on in your sheet yet. The steps are on this page.'), errs.length ? 'error' : '');
       })
       .catch(err => fail(err))
       .finally(() => { const b2 = $('gtRefresh'); if (b2) b2.disabled = false; });
-  },
-  toggleObjectives: () => {
-    setObjShown(!objShown());
-    if (STATE) render();
-    const b = document.querySelector('[data-act="toggleObjectives"]');   // the page was redrawn: keep keyboard focus on the same control
-    if (b) b.focus();
   },
   donePreset:  d => { $('doneMins').value = d.v; syncDonePresets(); },
   doneSave:    () => { const id = TODAY_FINISHING; if (!id) return; const m = Number($('doneMins').value) || 0; const dlg = $('doneDlg'); TODAY_FINISHING = null; if (dlg.open) dlg.close(); todayFinishNow(id, m); todayCloseBox(); },

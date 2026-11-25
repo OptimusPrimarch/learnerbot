@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const MODULES = ['Agents', 'Api', 'Code', 'GTasks', 'Groq', 'Log', 'Notify', 'Pairing', 'Sheets', 'Tidy', 'Today'];
+const MODULES = ['Agents', 'Api', 'Code', 'GCal', 'GTasks', 'Groq', 'Log', 'Notify', 'Pairing', 'Sheets', 'Tidy', 'Today'];
 const BAR = '// ============================================================\n';
 
 function build() {
