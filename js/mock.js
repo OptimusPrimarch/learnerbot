@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.11.28';
-  const RELEASE = '1.14';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.11.29';
+  const RELEASE = '1.15';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -124,7 +124,7 @@ const Mock = (() => {
   function todayView() {
     if (!db.todayMeta || db.todayMeta.date !== iso(0)) demoFeed();
     const d = iso(0);
-    return { date: d, fresh: true, feed: db.todayMeta, items: db.today.filter(t => t.date === d).map(t => ({ ...t })), carried: [], tasks: tasksStatus(), calendar: { enabled: true, at: new Date().toISOString(), error: '', busy: [], allDay: 1, calendars: 2 } };
+    return { date: d, fresh: true, feed: db.todayMeta, items: db.today.filter(t => t.date === d).map(t => ({ ...t })), carried: [], tasks: tasksStatus(), calendar: { enabled: true, at: new Date().toISOString(), error: '', busy: [], allDay: 1, calendars: 2 }, schedule: { enabled: !!(db.workday && db.workday.enabled), hours: (db.workday && db.workday.hours) || [6, 15], loader: 2, canSchedule: true, tz: 'your time zone' } };
   }
   function todayItem(id) {
     const t = db.today.find(x => x.id === String(id));
@@ -426,6 +426,11 @@ const Mock = (() => {
       case 'setTaskStatus':  setStatus(db.tasks, a, ['active', 'done', 'removed']); save(); return { ok: true };
       case 'logActivity':    { const entry = logActivity(a); save(); return { entry, streak: streak(), weekMinutes: weekMinutes() }; }
       case 'getToday':       return todayView();
+      case 'saveWorkdaySchedule': {
+        need(Array.isArray(a.hours) && a.hours.length >= 1 && a.hours.length <= 4 && a.hours.every(h => Number.isInteger(h) && h >= 0 && h <= 23), 'Choose between one and four times.');
+        db.workday = { enabled: a.enabled === true, hours: a.hours.slice().sort((x, y) => x - y) }; save();
+        return { schedule: todayView().schedule };
+      }
       case 'refreshTasks':
       case 'refreshGoogle':  { const v = todayView(); return { tasks: tasksStatus(), calendar: v.calendar, view: v }; }
       case 'newChat':        db.chat.push({ ts: new Date().toISOString(), role: 'divider', text: 'new conversation' }); save(); return { chatHistory: [] };

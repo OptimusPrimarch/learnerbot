@@ -10,5 +10,6 @@ return {
   _dailyJob,
   _weeklyJob,
   _nudgeJob,
+  _workdayJob,
   version: APP_VERSION
 };

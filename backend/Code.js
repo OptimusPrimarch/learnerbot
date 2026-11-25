@@ -5,8 +5,8 @@
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.14';
-const APP_VERSION = '2026.11.28';
+const APP_RELEASE = '1.15';
+const APP_VERSION = '2026.11.29';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800, voiceName: 30, myVoices: 12 };
@@ -61,6 +61,7 @@ function onOpen() {
     .addItem('Turn off all emails', 'menuEmailsOff')
     .addItem('Reset access token', 'menuResetToken');
   // The loader (a separate part of the script) provides this; it is the way back if an update ever misbehaves.
+  if (typeof menuAuthorizeGoogle === 'function') menu.addSeparator().addItem('Authorize Google (Calendar and Tasks)', 'menuAuthorizeGoogle');
   if (typeof menuUseBuiltIn === 'function') menu.addSeparator().addItem('Repair: use the built-in version', 'menuUseBuiltIn');
   menu.addToUi();
 }

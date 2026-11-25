@@ -20,6 +20,9 @@ const LB_CHUNK = 7000;            // characters per property (a property holds a
 const LB_MIN_SIZE = 20000;        // a real app is never smaller than this...
 const LB_MAX_SIZE = 400000;       // ...or larger than this
 const LB_UPDATES_PER_HOUR = 6;
+// Which loader this copy of Code.gs has. Version 2 added the Authorize Google menu item and the _workdayJob timer entry point; the page
+// reads this (through lbInfo) to tell when a one-time paste of the newest Code.gs is needed. Only a by-hand paste can raise it.
+const LB_LOADER_VERSION = 2;
 
 let _lbRun = null;                // the app for this run
 let _lbLoadError = '';
@@ -108,6 +111,7 @@ function lbInfo() {
     builtin: LB_BUILTIN_VERSION,
     installed: _lbSeen.installed,
     rollbackTo: _lbSeen.rollbackTo || LB_BUILTIN_VERSION,
+    loader: LB_LOADER_VERSION,
     canRollback: app.source === 'installed',
     loadError: _lbLoadError
   };
@@ -124,12 +128,35 @@ function menuEmailsOff() { return _lbRuntime().menuEmailsOff.apply(null, argumen
 function _dailyJob() { return _lbRuntime()._dailyJob.apply(null, arguments); }
 function _weeklyJob() { return _lbRuntime()._weeklyJob.apply(null, arguments); }
 function _nudgeJob() { return _lbRuntime()._nudgeJob.apply(null, arguments); }
+function _workdayJob() { return _lbRuntime()._workdayJob.apply(null, arguments); }
 
 function doPost(e) {
   let req = null;
   try { req = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (_) { /* the app answers a malformed body */ }
   if (req && (req.action === 'updateApp' || req.action === 'rollbackApp')) return _lbMetaAction(req);
   return _lbRuntime().doPost(e);
+}
+
+// ---- Google permissions ----------------------------------------
+// Google works out which permissions a script needs by reading its SOURCE for direct calls like the ones below. The app itself is
+// installed from script properties, where that scan cannot see it, and it reaches Calendar and Tasks through a variable so it keeps
+// working when a service is off. So these direct calls live here, in the source, and are only ever run by the menu item.
+
+function authorizeGoogle() {
+  Calendar.CalendarList.list({ maxResults: 1 });
+  Calendar.Events.list('primary', { maxResults: 1 });
+  Tasks.Tasklists.list({ maxResults: 1 });
+  Tasks.Tasks.list('@default', { maxResults: 1 });
+}
+
+function menuAuthorizeGoogle() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    authorizeGoogle();
+    ui.alert('Done. LearnerBot can now read your Google Calendar and Google Tasks.\n\nIf The Workday still shows an error, open Deploy > Manage deployments, press the pencil, choose New version, press Deploy, then press Refresh Google.');
+  } catch (e) {
+    ui.alert('That did not finish: ' + (e && e.message ? e.message : e) + '\n\nIn Apps Script, press + beside Services and add both Google Calendar API and Google Tasks API, then choose LearnerBot > Authorize Google again.');
+  }
 }
 
 // ---- updating and going back -----------------------------------

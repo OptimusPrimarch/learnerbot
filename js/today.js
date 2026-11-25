@@ -145,7 +145,7 @@ function todayDay(t) {
   const notes = [];
   if (cal && cal.error) {
     const perm = /author|permission|scope|access|consent/i.test(cal.error);
-    notes.push(`<p class="cfg-msg err" role="alert">Google Calendar could not be read: ${esc(cal.error)}${perm ? ' Open your sheet, run any LearnerBot menu item once and approve Google\'s permission screen, then press Refresh Google.' : ''}</p>`);
+    notes.push(`<p class="cfg-msg err" role="alert">Google Calendar could not be read: ${esc(cal.error)}${perm ? ' In your sheet choose LearnerBot > Authorize Google (Calendar and Tasks) and approve the permission screen. Then, if it still fails, Deploy > Manage deployments > the pencil > New version > Deploy, and press Refresh Google.' : ''}</p>`);
   } else if (cal && cal.enabled === false) {
     const hk = 'today-gcal-help';
     notes.push(`<details class="t-help" data-key="${hk}"${OPEN_DETAILS.has(hk) ? ' open' : ''}><summary>Bring in your Google Calendar</summary>
@@ -210,7 +210,7 @@ function tasksNote(g) {
   const when = g.at ? new Date(g.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
   if (g.error) {
     const perm = /author|permission|scope|access|consent/i.test(g.error);
-    return `<p class="cfg-msg err" role="alert">Google Tasks could not be read: ${esc(g.error)}${perm ? ' Open your sheet, run any LearnerBot menu item once and approve Google\'s permission screen, then press Refresh Google.' : ''}</p>`;
+    return `<p class="cfg-msg err" role="alert">Google Tasks could not be read: ${esc(g.error)}${perm ? ' In your sheet choose LearnerBot > Authorize Google (Calendar and Tasks) and approve the permission screen. Then, if it still fails, Deploy > Manage deployments > the pencil > New version > Deploy, and press Refresh Google.' : ''}</p>`;
   }
   if (!g.enabled) {
     const key = 'today-gt-help';
@@ -233,6 +233,32 @@ function todoSection(t, todo, total) {
       ${g ? '<button type="button" class="ghost run" id="gtRefresh" data-act="todayRefreshTasks">Refresh Google</button>' : ''}</div>
     ${tasksNote(g)}${body}
   </section>`;
+}
+
+/** Automatic refresh: the sheet refreshes Google Tasks and Calendar by itself on weekdays, with no computer needed. */
+function todayAuto(t) {
+  const s = t.schedule;
+  if (!s) return '';
+  const key = 'today-auto';
+  if (!s.canSchedule) {
+    return `<section class="card wide t-sec" aria-label="Automatic refresh"><details data-key="${key}"${OPEN_DETAILS.has(key) ? ' open' : ''}>
+      <summary>Automatic refresh</summary>
+      <p class="muted">Refreshing Google Tasks and Calendar by itself (even with your computer off) needs a one-time paste of the newest <b>Code.gs</b> into your sheet,
+        because the timer is part of that file. <a href="update.html">The update page explains how</a>; it takes about two minutes and nothing else changes.</p>
+    </details></section>`;
+  }
+  const opts = h => Array.from({ length: 24 }, (_, i) => `<option value="${i}"${i === h ? ' selected' : ''}>${esc(hourLabel(i))}</option>`).join('');
+  const [a, b] = [s.hours[0], s.hours[1] != null ? s.hours[1] : s.hours[0]];
+  return `<section class="card wide t-sec" aria-label="Automatic refresh"><details data-key="${key}"${OPEN_DETAILS.has(key) ? ' open' : ''}>
+    <summary>Automatic refresh ${s.enabled ? '<span class="pill completed">On</span>' : '<span class="pill">Off</span>'}</summary>
+    <p class="muted" style="margin-bottom:8px">Your sheet refreshes your Google Tasks and Google Calendar by itself on weekdays, even when your computer is off. Outlook, work items and WAYD still come from the planner on your computer.</p>
+    <div class="notify-row"><label><input type="checkbox" id="autoOn"${s.enabled ? ' checked' : ''}> Refresh automatically on weekdays</label>
+      <select id="autoH1" aria-label="First refresh time">${opts(a)}</select>
+      <select id="autoH2" aria-label="Second refresh time">${opts(b)}</select></div>
+    <p class="muted" style="font-size:12px;margin-top:6px">Times are in ${esc(s.tz || 'your time zone')} and can be up to about 15 minutes late. Choose the same time twice for one refresh a day.</p>
+    <div class="row"><button type="button" data-act="todaySaveAuto">Save</button></div>
+    <p id="autoMsg" class="cfg-msg" role="status"></p>
+  </details></section>`;
 }
 
 function renderToday() {
@@ -267,6 +293,7 @@ function renderToday() {
   html += todaySection('Skipped', items.filter(i => i.status === 'skipped'), false, false, 'today-skipped');
   html += todaySection('Closed since the last refresh', items.filter(i => i.status === 'closed'), false, false, 'today-closed');
   html += todayObjectives(t.feed);
+  html += todayAuto(t);
   host.innerHTML = html;
 }
 
@@ -399,6 +426,19 @@ Object.assign(HANDLERS, {
   todaySkip:   d => todaySetStatus(d.id, 'skipped', 'Skipping', 'Skipped'),
   todayReopenSkipped: d => todaySetStatus(d.id, 'open', 'Putting back', ''),
   todayAdd:    () => todayAddNow(),
+  todaySaveAuto: () => {
+    const msg = (text, kind) => { const m = $('autoMsg'); if (m) { m.textContent = text || ''; m.className = 'cfg-msg' + (kind ? ' ' + kind : ''); } };
+    const hours = Array.from(new Set([Number($('autoH1').value), Number($('autoH2').value)])).sort((x, y) => x - y);
+    const enabled = $('autoOn').checked;
+    msg('Saving …');
+    request('Saving', 'saveWorkdaySchedule', { enabled, hours })
+      .then(({ res }) => {
+        if (STATE && STATE.today && res.schedule) STATE.today.schedule = res.schedule;
+        settle();
+        msg(enabled ? 'On. Your sheet will refresh at ' + res.schedule.hours.map(hourLabel).join(' and ') + ' on weekdays.' : 'Off.', 'ok');
+      })
+      .catch(err => { msg(err.message, 'err'); if (isAuthError(err)) fail(err); });
+  },
   todayRefreshTasks: () => {   // "Refresh Google": Google Tasks and Google Calendar together
     const b = $('gtRefresh');
     if (b) b.disabled = true;

@@ -14,12 +14,15 @@
 // The one place an update is ever downloaded from. It is a constant on purpose: nothing a caller
 // sends can change it.
 const LB_UPDATE_URL = 'https://optimusprimarch.github.io/learnerbot/backend-payload.js';
-const LB_BUILTIN_VERSION = '2026.11.28';
-const LB_ENTRIES = ["doGet","doPost","onOpen","menuSetGroqKey","menuShowConnection","menuResetToken","menuEmailsOff","_dailyJob","_weeklyJob","_nudgeJob"];
+const LB_BUILTIN_VERSION = '2026.11.29';
+const LB_ENTRIES = ["doGet","doPost","onOpen","menuSetGroqKey","menuShowConnection","menuResetToken","menuEmailsOff","_dailyJob","_weeklyJob","_nudgeJob","_workdayJob"];
 const LB_CHUNK = 7000;            // characters per property (a property holds about 9 KB; the app text is plain ASCII)
 const LB_MIN_SIZE = 20000;        // a real app is never smaller than this...
 const LB_MAX_SIZE = 400000;       // ...or larger than this
 const LB_UPDATES_PER_HOUR = 6;
+// Which loader this copy of Code.gs has. Version 2 added the Authorize Google menu item and the _workdayJob timer entry point; the page
+// reads this (through lbInfo) to tell when a one-time paste of the newest Code.gs is needed. Only a by-hand paste can raise it.
+const LB_LOADER_VERSION = 2;
 
 let _lbRun = null;                // the app for this run
 let _lbLoadError = '';
@@ -108,6 +111,7 @@ function lbInfo() {
     builtin: LB_BUILTIN_VERSION,
     installed: _lbSeen.installed,
     rollbackTo: _lbSeen.rollbackTo || LB_BUILTIN_VERSION,
+    loader: LB_LOADER_VERSION,
     canRollback: app.source === 'installed',
     loadError: _lbLoadError
   };
@@ -124,12 +128,35 @@ function menuEmailsOff() { return _lbRuntime().menuEmailsOff.apply(null, argumen
 function _dailyJob() { return _lbRuntime()._dailyJob.apply(null, arguments); }
 function _weeklyJob() { return _lbRuntime()._weeklyJob.apply(null, arguments); }
 function _nudgeJob() { return _lbRuntime()._nudgeJob.apply(null, arguments); }
+function _workdayJob() { return _lbRuntime()._workdayJob.apply(null, arguments); }
 
 function doPost(e) {
   let req = null;
   try { req = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (_) { /* the app answers a malformed body */ }
   if (req && (req.action === 'updateApp' || req.action === 'rollbackApp')) return _lbMetaAction(req);
   return _lbRuntime().doPost(e);
+}
+
+// ---- Google permissions ----------------------------------------
+// Google works out which permissions a script needs by reading its SOURCE for direct calls like the ones below. The app itself is
+// installed from script properties, where that scan cannot see it, and it reaches Calendar and Tasks through a variable so it keeps
+// working when a service is off. So these direct calls live here, in the source, and are only ever run by the menu item.
+
+function authorizeGoogle() {
+  Calendar.CalendarList.list({ maxResults: 1 });
+  Calendar.Events.list('primary', { maxResults: 1 });
+  Tasks.Tasklists.list({ maxResults: 1 });
+  Tasks.Tasks.list('@default', { maxResults: 1 });
+}
+
+function menuAuthorizeGoogle() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    authorizeGoogle();
+    ui.alert('Done. LearnerBot can now read your Google Calendar and Google Tasks.\n\nIf The Workday still shows an error, open Deploy > Manage deployments, press the pencil, choose New version, press Deploy, then press Refresh Google.');
+  } catch (e) {
+    ui.alert('That did not finish: ' + (e && e.message ? e.message : e) + '\n\nIn Apps Script, press + beside Services and add both Google Calendar API and Google Tasks API, then choose LearnerBot > Authorize Google again.');
+  }
 }
 
 // ---- updating and going back -----------------------------------
@@ -592,6 +619,7 @@ const ACTIONS = {
   refreshTasks:     () => ({ tasks: refreshGoogleTasks(), calendar: refreshGoogleCalendar(), view: getTodayView() }),   // the earlier name of the same thing
   getGoogleDay:     () => getGoogleDay(),
   newChat:          () => startNewChat(),
+  saveWorkdaySchedule: a => saveWorkdaySchedule(a),
 
   // Looking back at the log (shown in History), and changing it. Removing only hides an entry.
   getLog:     a => getLog(a),
@@ -716,8 +744,8 @@ function _ensureHeaders() {
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.14';
-const APP_VERSION = '2026.11.28';
+const APP_RELEASE = '1.15';
+const APP_VERSION = '2026.11.29';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800, voiceName: 30, myVoices: 12 };
@@ -772,6 +800,7 @@ function onOpen() {
     .addItem('Turn off all emails', 'menuEmailsOff')
     .addItem('Reset access token', 'menuResetToken');
   // The loader (a separate part of the script) provides this; it is the way back if an update ever misbehaves.
+  if (typeof menuAuthorizeGoogle === 'function') menu.addSeparator().addItem('Authorize Google (Calendar and Tasks)', 'menuAuthorizeGoogle');
   if (typeof menuUseBuiltIn === 'function') menu.addSeparator().addItem('Repair: use the built-in version', 'menuUseBuiltIn');
   menu.addToUi();
 }
@@ -1478,7 +1507,7 @@ const NOTIFY_DEFAULTS = {
   nudge:  { enabled: false, hour: 20 }
 };
 const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-const JOB_HANDLERS = ['_dailyJob', '_weeklyJob', '_nudgeJob'];
+const JOB_HANDLERS = ['_dailyJob', '_weeklyJob', '_nudgeJob', '_workdayJob'];
 const TEST_EMAILS_PER_HOUR = 5;
 
 // ---- Settings -----------------------------------------------
@@ -1530,6 +1559,50 @@ function saveNotifications(a) {
 
 // ---- Triggers (one per switched-on schedule) ----------------
 
+// ---- The Workday's own refresh (no email): Google Tasks and Google Calendar on weekdays, at the hours the person chose ----
+
+const WORKDAY_DEFAULT_HOURS = [6, 15];
+
+function _loaderVersion() {
+  try { return typeof LB_LOADER_VERSION === 'number' ? LB_LOADER_VERSION : 1; } catch (_) { return 1; }
+}
+
+function _workdaySettings() {
+  let s = {};
+  try { s = JSON.parse(_props().getProperty('WORKDAY') || '{}') || {}; } catch (_) { s = {}; }
+  const hours = (Array.isArray(s.hours) ? s.hours : []).map(Number).filter(h => Number.isInteger(h) && h >= 0 && h <= 23).slice(0, 4);
+  return { enabled: s.enabled === true, hours: hours.length ? hours : WORKDAY_DEFAULT_HOURS.slice() };
+}
+
+/** What the page shows: whether it runs, when, and whether this copy of Code.gs can run a timer for it (loader version 2 or newer). */
+function getWorkdaySchedule() {
+  const s = _workdaySettings(), loader = _loaderVersion();
+  return { enabled: s.enabled, hours: s.hours, loader: loader, canSchedule: loader >= 2, tz: _tzName() };
+}
+
+function saveWorkdaySchedule(a) {
+  _needMaster();
+  if (_loaderVersion() < 2) throw _err('needs_loader', 'Automatic refresh needs a one-time paste of the newest Code.gs into your sheet (the update page explains how), because the timer is part of that file.');
+  a = a || {};
+  const hours = Array.from(new Set((Array.isArray(a.hours) ? a.hours : []).map(h => _int(h, 0, 23, 'An hour')))).sort((x, y) => x - y);
+  if (!hours.length || hours.length > 4) throw _err('bad_request', 'Choose between one and four times.');
+  _props().setProperty('WORKDAY', JSON.stringify({ enabled: a.enabled === true, hours: hours }));
+  _syncTriggers(_notifySettings());
+  return { schedule: getWorkdaySchedule() };
+}
+
+/** Timer entry point. Weekdays only (a timer cannot say "weekdays", so it checks). Never throws. */
+function _workdayJob() {
+  try {
+    if (!_workdaySettings().enabled) return;
+    if (Number(Utilities.formatDate(new Date(), _tzName(), 'u')) >= 6) return;   // 1 = Monday ... 7 = Sunday
+    refreshGoogleTasks();
+    refreshGoogleCalendar();
+  } catch (e) {
+    _logJobError('workday', e);
+  }
+}
+
 function _syncTriggers(s) {
   ScriptApp.getProjectTriggers()
     .filter(t => JOB_HANDLERS.indexOf(t.getHandlerFunction()) >= 0)
@@ -1539,6 +1612,8 @@ function _syncTriggers(s) {
   if (s.daily.enabled)  ScriptApp.newTrigger('_dailyJob').timeBased().inTimezone(tz).atHour(s.daily.hour).everyDays(1).create();
   if (s.weekly.enabled) ScriptApp.newTrigger('_weeklyJob').timeBased().inTimezone(tz).onWeekDay(ScriptApp.WeekDay[WEEKDAYS[s.weekly.day]]).atHour(s.weekly.hour).create();
   if (s.nudge.enabled)  ScriptApp.newTrigger('_nudgeJob').timeBased().inTimezone(tz).atHour(s.nudge.hour).everyDays(1).create();
+  const w = _workdaySettings();
+  if (w.enabled && _loaderVersion() >= 2) w.hours.forEach(h => ScriptApp.newTrigger('_workdayJob').timeBased().inTimezone(tz).atHour(h).everyDays(1).create());
 }
 
 /** Sheet-menu panic button: every schedule off, hours remembered. */
@@ -1547,7 +1622,7 @@ function menuEmailsOff() {
   ['daily', 'weekly', 'nudge'].forEach(k => { s[k].enabled = false; });
   _props().setProperty('NOTIFY', JSON.stringify(s));
   _syncTriggers(s);
-  SpreadsheetApp.getUi().alert('All scheduled emails are off and nothing runs on a schedule now. You can turn them back on in the LearnerBot site: \u2699 \u2192 Email updates.');
+  SpreadsheetApp.getUi().alert('All scheduled emails are off. (The Workday\'s own refresh, if you turned it on, is separate and keeps running.) You can turn emails back on in the LearnerBot site: \u2699 \u2192 Email updates.');
 }
 
 // ---- Scheduled jobs -----------------------------------------
@@ -2764,7 +2839,7 @@ function getTodayView() {
   // With a schedule, `feed` carries the merged windows even before the planner has delivered today's plan.
   const feed = sched ? Object.assign({}, meta || { date: today, at: '', objectives: [] },
     { busy: sched.busy, focus: sched.focus, budget: sched.budget, allDay: sched.allDay, sources: sched.sources }) : meta;
-  return { date: today, fresh: !!meta && meta.date === today, feed: feed, items: items, carried: carried, tasks: getGoogleTasksStatus(), calendar: gcal };
+  return { date: today, fresh: !!meta && meta.date === today, feed: feed, items: items, carried: carried, tasks: getGoogleTasksStatus(), calendar: gcal, schedule: getWorkdaySchedule() };
 }
 
 // ---- cleaning what arrives ------------------------------------
@@ -3031,6 +3106,7 @@ return {
   _dailyJob,
   _weeklyJob,
   _nudgeJob,
+  _workdayJob,
   version: APP_VERSION
 };
 }
