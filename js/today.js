@@ -143,14 +143,32 @@ function todayDay(f) {
   </details></section>`;
 }
 
+// Show or minimize the team objectives. The choice is remembered on this device (a phone and a computer can differ);
+// before one is made they stay minimized, as they always have.
+const OBJ_PREF_KEY = 'learnerbot.workday.objectives';
+let objShownVisit = false;   // used when this browser will not store anything
+function objShown() {
+  try { const v = localStorage.getItem(OBJ_PREF_KEY); return v ? v === 'show' : objShownVisit; } catch (_) { return objShownVisit; }
+}
+function setObjShown(on) {
+  objShownVisit = on;
+  try { localStorage.setItem(OBJ_PREF_KEY, on ? 'show' : 'min'); } catch (_) { /* kept for this visit only */ }
+}
+
 function todayObjectives(f) {
-  if (!f || !arr(f.objectives).length) return '';
-  const key = 'today-obj';
-  return `<section class="card wide t-sec"><details data-key="${key}"${OPEN_DETAILS.has(key) ? ' open' : ''}>
-    <summary>Team objectives <span class="muted">(${f.objectives.length})</span></summary>
-    <ul class="plain">${f.objectives.map(o => `<li>${esc(o.name)} <span class="muted">· ${esc(o.progress)}%${o.due ? ', due ' + esc(o.due) : ''}</span>
-      <div class="progress-bar" role="progressbar" aria-label="${esc(o.name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${esc(o.progress)}"><div class="progress-fill" style="width:${esc(o.progress)}%"></div></div></li>`).join('')}</ul>
-  </details></section>`;
+  const list = f ? arr(f.objectives) : [];
+  if (!list.length) return '';
+  const shown = objShown();
+  const avg = Math.round(list.reduce((s, o) => s + (Number(o.progress) || 0), 0) / list.length);
+  const body = shown
+    ? `<ul class="plain" id="objList">${list.map(o => `<li>${esc(o.name)} <span class="muted">· ${esc(o.progress)}%${o.due ? ', due ' + esc(o.due) : ''}</span>
+        <div class="progress-bar" role="progressbar" aria-label="${esc(o.name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${esc(o.progress)}"><div class="progress-fill" style="width:${esc(o.progress)}%"></div></div></li>`).join('')}</ul>`
+    : `<p class="muted t-obj-sum" id="objList">${list.length} objective${list.length === 1 ? '' : 's'} · ${avg}% done on average</p>`;
+  return `<section class="card wide t-sec" aria-label="Team objectives">
+    <div class="card-head"><label class="head">Team objectives <span class="muted">(${list.length})</span></label>
+      <button type="button" class="ghost run" data-act="toggleObjectives" aria-expanded="${shown}" aria-controls="objList">${shown ? 'Minimize' : 'Show'}</button></div>
+    ${body}
+  </section>`;
 }
 
 function renderToday() {
@@ -318,6 +336,12 @@ Object.assign(HANDLERS, {
   todaySkip:   d => todaySetStatus(d.id, 'skipped', 'Skipping', 'Skipped'),
   todayReopenSkipped: d => todaySetStatus(d.id, 'open', 'Putting back', ''),
   todayAdd:    () => todayAddNow(),
+  toggleObjectives: () => {
+    setObjShown(!objShown());
+    if (STATE) render();
+    const b = document.querySelector('[data-act="toggleObjectives"]');   // the page was redrawn: keep keyboard focus on the same control
+    if (b) b.focus();
+  },
   donePreset:  d => { $('doneMins').value = d.v; syncDonePresets(); },
   doneSave:    () => { const id = TODAY_FINISHING; if (!id) return; const m = Number($('doneMins').value) || 0; const dlg = $('doneDlg'); TODAY_FINISHING = null; if (dlg.open) dlg.close(); todayFinishNow(id, m); todayCloseBox(); },
   doneCancel:  () => { TODAY_FINISHING = null; todayCloseBox(); }

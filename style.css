@@ -382,3 +382,8 @@ button.t-check:disabled{opacity:.4;cursor:default}
 .t-day-row:last-child{border-bottom:0}
 .t-time{font-variant-numeric:tabular-nums;white-space:nowrap}
 @media(max-width:680px){.t-day-row{grid-template-columns:minmax(0,1fr);gap:2px}}
+
+/* Team objectives on The Workday: a one-line summary while minimized. */
+.t-obj-sum{margin-top:2px}
+.t-sec .card-head{margin-bottom:6px}
+@media(max-width:680px),(pointer:coarse){.t-sec .card-head button{min-height:40px;min-width:64px}}

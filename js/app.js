@@ -27,7 +27,7 @@ let updateError = '';            // why the last update attempt failed, shown in
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
 const EXPECTED_BACKEND = '2026.11.26';
-const SITE_RELEASE = '1.11';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
+const SITE_RELEASE = '1.12';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const CUSTOM_LOOK_BUILD = '2026.10.11';   // the first script build that can save the Custom theme
 const VERSION_KEY = 'learnerbot.backendVersion';
