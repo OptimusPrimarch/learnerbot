@@ -71,6 +71,10 @@ function load(repoRoot, opts) {
       computeDigest: () => [1, 2, 3], DigestAlgorithm: { SHA_256: 'SHA_256' }
     },
     UrlFetchApp: { fetch: (url, o) => {
+      if (/backend-payload\.js/.test(url)) {   // "Update now": the sheet's loader downloads the new app from the site
+        const text = opts.payload != null ? opts.payload : fs.readFileSync(path.join(repoRoot, 'backend-payload.js'), 'utf8');
+        return { getResponseCode: () => 200, getContentText: () => text };
+      }
       groqCalls.push(JSON.parse(o.payload));
       return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ choices: [{ message: { content: groqAnswer }, finish_reason: 'stop' }] }) };
     } },
@@ -79,9 +83,13 @@ function load(repoRoot, opts) {
     Logger: { log: () => {} }
   };
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(repoRoot, 'backend-latest.gs'), 'utf8'), ctx, { filename: 'backend-latest.gs' });
+  let gs = fs.readFileSync(path.join(repoRoot, 'backend-latest.gs'), 'utf8');
+  // opts.asVersion makes the built-in copy claim an older build, like a sheet that has not been updated yet (the loader is the real one).
+  if (opts.asVersion) gs = gs.replace(/const APP_VERSION = '[^']+'/, "const APP_VERSION = '" + opts.asVersion + "'").replace(/const LB_BUILTIN_VERSION = '[^']+'/, "const LB_BUILTIN_VERSION = '" + opts.asVersion + "'");
+  vm.runInContext(gs, ctx, { filename: 'backend-latest.gs' });
 
   function call(action, args, token) {
+    vm.runInContext('_lbRun = null; _lbLoadError = ""', ctx);   // every Apps Script request starts fresh: the loader picks the app again
     const out = ctx.doPost({ postData: { contents: JSON.stringify({ token: token === undefined ? 'master-token' : token, action, args: args || {}, tz: 'America/Denver' }) } });
     return JSON.parse(out.getContent());
   }
