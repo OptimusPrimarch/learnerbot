@@ -5,6 +5,11 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.17 · website only · script build stays 2026.11.30 · 2026-11-25
+
+- **Track the objectives you care about.** On Today's Look, press ☆ beside a team objective to track it. Tracked objectives stay in view with their
+  progress even when the list is minimized. The choice is remembered on this device (like Show and Minimize). No Update now needed
+
 ## 1.16 · build 2026.11.30 · 2026-11-25
 
 **Today's Look: your day from 8 AM to 8 PM, and a to-do list that lives on the dashboard**
