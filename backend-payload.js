@@ -1,4 +1,4 @@
-// LearnerBot app payload 2026.11.25
+// LearnerBot app payload 2026.11.25.1
 // ============================================================
 // Agents.js
 // ============================================================
@@ -448,8 +448,8 @@ function _ensureHeaders() {
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.8';
-const APP_VERSION = '2026.11.25';
+const APP_RELEASE = '1.9';
+const APP_VERSION = '2026.11.25.1';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800, voiceName: 30, myVoices: 12 };
@@ -2217,7 +2217,8 @@ function _cleanFeedMeta(date, m) {
     at: new Date().toISOString(),
     budget: _cleanPoints(m.budget),
     focus: list(m.focus, 12).map(win).filter(w => w.start && w.end),
-    busy: list(m.busy, 20).map(w => ({ start: _cleanHm(w && w.start), end: _cleanHm(w && w.end) })).filter(w => w.start && w.end),
+    busy: list(m.busy, 30).map(w => ({ start: _cleanHm(w && w.start), end: _cleanHm(w && w.end), src: w && (w.src === 'Outlook' || w.src === 'Google') ? w.src : '' })).filter(w => w.start && w.end),
+    allDay: Math.max(0, Math.min(20, Math.round(Number(m.allDay) || 0))),   // how many all-day items, never their names
     objectives: list(m.objectives, 12).map(o => ({
       key: _clip(o && o.key, 12), name: _clip(o && o.name, 80),
       progress: Math.max(0, Math.min(100, Math.round(Number(o && o.progress) || 0))), due: _clip(o && o.due, 10)
@@ -2379,7 +2380,7 @@ function buildTodayContext() {
   }
   const f = v.feed;
   if (f.focus && f.focus.length) lines.push('Open focus time: ' + f.focus.map(w => w.start + '-' + w.end + ' (' + _fmtMinutes(w.minutes) + ')').join(', '));
-  if (f.busy && f.busy.length) lines.push('Booked: ' + f.busy.map(w => w.start + '-' + w.end).join(', '));
+  if (f.busy && f.busy.length) lines.push('Booked: ' + f.busy.map(w => w.start + '-' + w.end + (w.src ? ' (' + w.src + ')' : '')).join(', '));
   if (f.budget !== '' && f.budget != null) lines.push('Realistic budget today: about ' + f.budget + ' story points of work');
   const goalName = {};
   getActiveGoals().forEach(g => { goalName[g.id] = g.title; });

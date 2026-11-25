@@ -67,7 +67,8 @@ function _cleanFeedMeta(date, m) {
     at: new Date().toISOString(),
     budget: _cleanPoints(m.budget),
     focus: list(m.focus, 12).map(win).filter(w => w.start && w.end),
-    busy: list(m.busy, 20).map(w => ({ start: _cleanHm(w && w.start), end: _cleanHm(w && w.end) })).filter(w => w.start && w.end),
+    busy: list(m.busy, 30).map(w => ({ start: _cleanHm(w && w.start), end: _cleanHm(w && w.end), src: w && (w.src === 'Outlook' || w.src === 'Google') ? w.src : '' })).filter(w => w.start && w.end),
+    allDay: Math.max(0, Math.min(20, Math.round(Number(m.allDay) || 0))),   // how many all-day items, never their names
     objectives: list(m.objectives, 12).map(o => ({
       key: _clip(o && o.key, 12), name: _clip(o && o.name, 80),
       progress: Math.max(0, Math.min(100, Math.round(Number(o && o.progress) || 0))), due: _clip(o && o.due, 10)
@@ -229,7 +230,7 @@ function buildTodayContext() {
   }
   const f = v.feed;
   if (f.focus && f.focus.length) lines.push('Open focus time: ' + f.focus.map(w => w.start + '-' + w.end + ' (' + _fmtMinutes(w.minutes) + ')').join(', '));
-  if (f.busy && f.busy.length) lines.push('Booked: ' + f.busy.map(w => w.start + '-' + w.end).join(', '));
+  if (f.busy && f.busy.length) lines.push('Booked: ' + f.busy.map(w => w.start + '-' + w.end + (w.src ? ' (' + w.src + ')' : '')).join(', '));
   if (f.budget !== '' && f.budget != null) lines.push('Realistic budget today: about ' + f.budget + ' story points of work');
   const goalName = {};
   getActiveGoals().forEach(g => { goalName[g.id] = g.title; });
