@@ -329,3 +329,49 @@ body{padding-bottom:calc(32px + env(safe-area-inset-bottom))}
 .plan-edit .row{flex-wrap:wrap}
 .plan-edit .row input{flex:1 1 120px;width:auto;min-width:0}
 @media(max-width:680px){.rv-row{flex-direction:column}.rv-pick{width:100%}.rv-pick button{flex:1}}
+
+/* ---- Today tab (js/today.js). Only theme variables are used, so every theme and the Custom colours apply. ---- */
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.wide-notice{grid-column:1/-1;margin-bottom:0}
+.t-head h3{margin-bottom:6px}
+.t-bar{height:8px;border-radius:4px;margin:8px 0 2px}
+.t-bar .progress-fill{height:8px;border-radius:4px}
+.t-sec details>summary{cursor:pointer;font-size:calc(12px*var(--fs));text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:2px 0}
+.t-sec details[open]>summary{margin-bottom:8px}
+.t-list{list-style:none}
+.t-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:start;padding:10px 0;border-bottom:1px solid var(--border)}
+.t-row:last-child{border-bottom:0}
+.t-main{min-width:0}
+.t-title{font-weight:600;overflow-wrap:anywhere}
+.t-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.t-note{font-size:calc(13px*var(--fs));margin-top:2px;overflow-wrap:anywhere}
+.t-goal{margin-top:8px;max-width:420px}
+.t-goal select{font-size:calc(13px*var(--fs));padding:5px 8px}
+.t-side{display:flex;align-items:center;min-height:32px}
+.t-done{font-size:calc(13px*var(--fs));white-space:nowrap}
+.t-row.is-done .t-title{text-decoration:line-through;color:var(--muted);font-weight:500}
+.t-row.is-skipped .t-title{color:var(--muted);font-style:italic;font-weight:500}
+/* The check box is a real button (role=checkbox): keyboard, screen reader and touch all work, and the state is not shown by colour alone (a tick mark too). */
+button.t-check{width:32px;height:32px;min-height:32px;padding:0;border-radius:8px;background:transparent;color:var(--on-accent);border:2px solid var(--muted);display:inline-flex;align-items:center;justify-content:center;font-size:calc(18px*var(--fs));line-height:1;margin-top:1px}
+button.t-check:hover:not(:disabled){border-color:var(--accent)}
+button.t-check.on{background:var(--accent);border-color:var(--accent)}
+button.t-check:disabled{opacity:.4;cursor:default}
+.done-task{font-weight:600;margin:4px 0 2px;overflow-wrap:anywhere}
+#donePresets button{padding:6px 12px}
+#doneMins{width:100%}
+@media(max-width:680px),(pointer:coarse){
+  button.t-check{width:40px;height:40px;min-height:40px}
+  .t-goal select{font-size:16px;padding:8px 10px;min-height:40px}
+  #donePresets button{min-height:40px;flex:1 1 28%}
+}
+@media(max-width:680px){
+  #todayView{grid-template-columns:minmax(0,1fr);gap:12px}
+  .t-row{grid-template-columns:auto minmax(0,1fr)}
+  .t-side{grid-column:2;min-height:0;margin-top:2px}
+}
+#doneDlg{margin:auto}   /* the page-wide margin reset would otherwise pin a dialog to the top-left corner */
+/* Five tabs now: tighter on a phone so they stay on one row (they still wrap if text size is set large). */
+@media(max-width:680px){
+  .views{gap:6px}
+  .views .nav-btn{padding:6px 4px;font-size:calc(12px*var(--fs));min-width:0}
+}

@@ -40,6 +40,7 @@
     <nav class="tabs" aria-label="Views">
       <div class="views">
         <button class="nav-btn" id="navDash" data-act="view" data-view="dash">Dashboard</button>
+        <button class="nav-btn needs-new" id="navToday" data-act="view" data-view="today">Today</button>
         <button class="nav-btn" id="navReview" data-act="view" data-view="review">Review</button>
         <button class="nav-btn" id="navAsst" data-act="view" data-view="asst">Assistant</button>
         <button class="nav-btn" id="navHist" data-act="view" data-view="history">History</button>
@@ -53,6 +54,7 @@
 
   <div id="notices"></div>
   <div id="mainGrid" class="grid"></div>
+  <div id="todayView" class="grid" hidden></div>
   <div id="reviewView" hidden></div>
   <div id="asstView" hidden>
     <section class="card chat-card" aria-label="Chat">
@@ -168,6 +170,21 @@
   </div>
 </dialog>
 
+<dialog id="doneDlg" aria-labelledby="doneHead">
+  <div class="dlg">
+    <div class="dlg-head"><h2 id="doneHead">Nice work</h2></div>
+    <p id="doneTask" class="done-task"></p>
+    <label class="head" for="doneMins">How long did it take?</label>
+    <div class="seg" id="donePresets" role="group" aria-label="Quick picks"></div>
+    <select id="doneMins" style="margin-top:10px"></select>
+    <p class="muted" style="font-size:13px;margin-top:8px">This is saved to your log, tagged from the goal if you linked one. You can skip the time.</p>
+    <div class="row">
+      <button type="button" data-act="doneSave">Save to log</button>
+      <button type="button" class="ghost" data-act="doneCancel">Cancel</button>
+    </div>
+  </div>
+</dialog>
+
 <div id="toasts">
   <div id="undo" role="status" hidden><span id="undoText"></span><button type="button" class="ghost run" id="undoBtn" data-act="undo">Undo</button></div>
   <div id="toast" role="status" aria-live="polite"></div>
@@ -179,5 +196,6 @@
 <script src="js/voices.js"></script>
 <script src="js/app.js"></script>
 <script src="js/history.js"></script>
+<script src="js/today.js"></script>
 </body>
 </html>

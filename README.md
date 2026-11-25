@@ -1,6 +1,6 @@
 # LearnerBot (web)
 
-Current release: **1.7** (the sheet's script is build 2026.10.14). See [CHANGELOG.md](CHANGELOG.md). A release has a name people
+Current release: **1.8** (the sheet's script is build 2026.11.25). See [CHANGELOG.md](CHANGELOG.md). A release has a name people
 see; the script has its own build id that the update check compares, and it changes only when the script does.
 
 A static front end for LearnerBot, hosted on GitHub Pages. It has no server of its own:
@@ -12,7 +12,7 @@ app, so goals, journal entries and AI keys stay in their own Google account.
 - No build step. Plain HTML, CSS and JavaScript:
   - `js/api.js` is the only file that talks to the network
   - `js/queue.js` keeps changes that have not reached the sheet yet (per connection, in this browser) so nothing is lost offline
-  - `js/app.js` is the UI
+  - `js/app.js` is the UI; `js/history.js` is the History tab and `js/today.js` is the Today tab
   - `js/mock.js` is the in-browser demo backend
 - Keeping a sheet's script current: a friend's sheet holds one `Code.gs`: a small loader plus the app that came
   with their copy. When the site expects a newer app than the one running (`EXPECTED_BACKEND` in `js/app.js`), it

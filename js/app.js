@@ -26,8 +26,8 @@ let updateError = '';            // why the last update attempt failed, shown in
 // The backend version this copy of the site was written for. A sheet script older than this keeps working for
 // everything it already did, but lacks the newer features, so the site says so and points to update.html.
 // (tests/backend.test.js fails if this and backend/Code.js drift apart.)
-const EXPECTED_BACKEND = '2026.10.14';
-const SITE_RELEASE = '1.7';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
+const EXPECTED_BACKEND = '2026.11.25';
+const SITE_RELEASE = '1.8';   // the name people see for this version of the site (web/CHANGELOG.md); the script has its own build
 const DISMISS_KEY = 'learnerbot.dismissedUpdate';
 const CUSTOM_LOOK_BUILD = '2026.10.11';   // the first script build that can save the Custom theme
 const VERSION_KEY = 'learnerbot.backendVersion';
@@ -233,7 +233,7 @@ function settle() {
 // can fail for a while (no signal, a busy sheet); the change then stays queued, shown as "N changes waiting", and is
 // sent again when the connection is back. The sheet only ever sees them one at a time, oldest first.
 const HOOKS = new Map();                            // ref -> what to do when that change is done (this page only)
-const CREATES = new Set(['addGoal', 'addTask', 'logActivity', 'submitFeedback']);   // changes the script can recognise by their ref
+const CREATES = new Set(['addGoal', 'addTask', 'logActivity', 'submitFeedback', 'addTodayTask', 'completeTodayTask']);   // changes the script can recognise by their ref
 const RETRY_CODES = ['network', 'busy', 'not_json'];   // not the change's fault: keep it and try again
 const RETRY_MS = [4000, 10000, 30000, 60000, 120000];
 const WRITE_TIMEOUT_MS = 45000;
@@ -331,6 +331,7 @@ async function sendOne(rec) {
   const res = out.res;
   if (rec.action === 'addGoal' && rec.tmp) swapGoal(rec.tmp, res && res.goal);
   if (rec.action === 'addTask' && rec.tmp) swapTask(rec.tmp, res && res.task);
+  if (rec.action === 'addTodayTask' && rec.tmp && typeof swapTodayItem === 'function') swapTodayItem(rec.tmp, res && res.task);
   if (hooks.onOk) hooks.onOk(res, !!(res && res.goals));
   if (res && res.goals) {   // a sheet script from before small answers sends the whole state back
     if (!Queue.size() && pending === 0) applyState(res); else needsResync = true;
@@ -536,8 +537,8 @@ function saveGoalEdit(id) {
 
 // ---- views ---------------------------------------------------
 // Each tab is a button and the box it shows.
-const VIEWS = { dash: ['navDash', 'mainGrid'], review: ['navReview', 'reviewView'], asst: ['navAsst', 'asstView'], history: ['navHist', 'histView'] };
-const VIEW_BOXES = '#mainGrid, #reviewView, #asstView, #histView';
+const VIEWS = { dash: ['navDash', 'mainGrid'], today: ['navToday', 'todayView'], review: ['navReview', 'reviewView'], asst: ['navAsst', 'asstView'], history: ['navHist', 'histView'] };
+const VIEW_BOXES = '#mainGrid, #todayView, #reviewView, #asstView, #histView';
 
 function switchView(v) {
   if (!Object.prototype.hasOwnProperty.call(VIEWS, v)) v = 'dash';
@@ -615,7 +616,7 @@ function render() {
   document.body.classList.toggle('legacy', backendOutdated());   // hides controls an older script would silently ignore
   renderNotices();
   const snap = snapshotInputs();
-  if (VIEW === 'history') renderHistory(); else if (VIEW === 'review') renderReview(); else if (VIEW === 'asst') renderAsst(); else renderDash();
+  if (VIEW === 'history') renderHistory(); else if (VIEW === 'today') renderToday(); else if (VIEW === 'review') renderReview(); else if (VIEW === 'asst') renderAsst(); else renderDash();
   restoreInputs(snap);
   syncAiButtons();
 }
