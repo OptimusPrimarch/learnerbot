@@ -209,3 +209,32 @@ test('the site, the demo and the script agree on the version they expect', () =>
   assert.equal(/const RELEASE = '([^']+)'/.exec(mock)[1], release);
   assert.match(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'), new RegExp('## ' + release.replace('.', '\.') + ' · (build ' + build.replace(/\./g, '\.') + '|website only · script build stays ' + build.replace(/\./g, '\.') + ')'));
 });
+
+// ---- Update now: the loader that is already installed in a sheet must accept this release's file ----
+const build = () => /const APP_VERSION = '([^']+)'/.exec(require('fs').readFileSync(path.join(root, 'backend', 'Code.js'), 'utf8'))[1];
+
+test('the build number has the shape the sheet updater accepts (three numbers, like 2026.11.26)', () => {
+  assert.match(build(), /^\d{4}\.\d{1,3}\.\d{1,4}$/);
+});
+
+test('Update now: a sheet still on the previous script installs this build, then runs it', () => {
+  const w = load(root, { asVersion: '2026.10.14' });
+  assert.equal(w.ok('ping').version, '2026.10.14');
+  const res = w.ok('updateApp', { expectVersion: build() });
+  assert.equal(res.status, 'updated');
+  assert.equal(res.to, build());
+  const after = w.ok('ping');
+  assert.equal(after.version, build(), 'the installed copy is the one running now');
+  assert.ok(w.ok('getState').today, 'and it has the Today feature');
+  assert.equal(w.ok('updateApp', { expectVersion: build() }).status, 'current', 'pressing it again is harmless');
+});
+
+test('Update now: a build number in a shape the updater does not know is refused, and nothing changes', () => {
+  const fs = require('fs');
+  const payload = fs.readFileSync(path.join(root, 'backend-payload.js'), 'utf8').replace(/^\/\/ LearnerBot app payload [^\n]+/, '// LearnerBot app payload 2026.11.25.1');
+  const w = load(root, { asVersion: '2026.10.14', payload });
+  const r = w.call('updateApp', { expectVersion: '2026.11.25.1' });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'bad_update');
+  assert.equal(w.ok('ping').version, '2026.10.14');
+});

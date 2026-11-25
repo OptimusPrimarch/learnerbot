@@ -5,6 +5,16 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.11 · build 2026.11.26 · 2026-11-25
+
+**Update now works again for the Workday release**
+- Releases 1.9 and 1.10 were labelled with a script build number (2026.11.25.1) that the updater built into every sheet refuses, so **Update
+  now** said "The downloaded file is not a LearnerBot update". Nothing was installed and nothing in your sheet changed
+- This release carries everything from 1.8, 1.9 and 1.10 (the Workday tab, **Your day**, and the new name) under build **2026.11.26**,
+  which the updater accepts. A test now runs the real update from the previous script to this one, and checks the build number's format
+
+**Needs the script update:** yes. Press **Update now**.
+
 ## 1.10 · website only · script build stays 2026.11.25.1 · 2026-11-25
 
 **The Today tab is now called The Workday**
