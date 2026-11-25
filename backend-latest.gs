@@ -14,7 +14,7 @@
 // The one place an update is ever downloaded from. It is a constant on purpose: nothing a caller
 // sends can change it.
 const LB_UPDATE_URL = 'https://optimusprimarch.github.io/learnerbot/backend-payload.js';
-const LB_BUILTIN_VERSION = '2026.11.29';
+const LB_BUILTIN_VERSION = '2026.11.30';
 const LB_ENTRIES = ["doGet","doPost","onOpen","menuSetGroqKey","menuShowConnection","menuResetToken","menuEmailsOff","_dailyJob","_weeklyJob","_nudgeJob","_workdayJob"];
 const LB_CHUNK = 7000;            // characters per property (a property holds about 9 KB; the app text is plain ASCII)
 const LB_MIN_SIZE = 20000;        // a real app is never smaller than this...
@@ -452,13 +452,23 @@ function buildPlanContext(dashboard) {
 
 // ---- Agent calls -------------------------------------------
 
+/** The coach's answer, tidied: `assessment` is plain text and `covered` only holds keys of the form t<number>. */
+function _cleanCoach(r) {
+  r = r && typeof r === 'object' ? r : {};
+  const out = Object.assign({}, r);
+  out.assessment = _clip(r.assessment, 700);
+  out.covered = (Array.isArray(r.covered) ? r.covered : []).map(x => String(x).trim().replace(/^\[|\]$/g, '')).filter(x => /^t\d{1,9}$/.test(x)).filter((x, i, a) => a.indexOf(x) === i).slice(0, 30);
+  return out;
+}
+
 function callLearningCoach(context) {
-  return callGroq([
+  return _cleanCoach(callGroq([
     {
       role: 'system',
       content: [
         'You are a Learning Coach for a single user checking in each morning.',
-        'Given their active goals and any feedback, choose ONE specific focus for today.',
+        'Given their active goals, their to-do list and any feedback, choose ONE specific focus for today.',
+        'When a TO-DO LIST is given, make an honest assessment across those current obligations and the ACTIVE GOALS: where they pull the same way, where they compete for the day, and what is at risk if it waits. Build the focus and the actions around both, not around the goals alone.',
         'Be concrete \u2014 name the goal, the action, the reason. Do not be generic.',
         'Weigh what the facts say: overdue and soon-due goals first, then goals that have gone quiet, then goals that already have open tasks you can point at.',
         'Build on what they have actually logged lately, and do not simply repeat the previous focus unless a deadline demands it.',
@@ -466,11 +476,12 @@ function callLearningCoach(context) {
         'When a TODAY\'S WORK PLAN is given, let it shape the actions: say which listed work item to start with and fit it to the open focus time, and mention which goal or team objective it advances when the data says so. Refer to items by their ID and never invent work items. If it says no fresh plan arrived, ignore work items and plan from the goals alone.',
         '',
         'Return ONLY valid JSON in exactly this shape (no markdown, no extra keys):',
-        '{"focus":"short title for today","actions":["specific action 1","specific action 2","specific action 3"],"reason":"one sentence on why this focus matters today"}'
+        'assessment is two or three plain sentences. actions has three to five short bullets, each one something that fits in a block of time. covered lists the keys (like t12, exactly as written in the TO-DO LIST) of to-do items your actions already take care of; use [] when there are none, and never invent a key.',
+        '{"assessment":"2-3 sentences weighing the to-do list against the goals","focus":"short title for today","actions":["specific action 1","specific action 2","specific action 3"],"reason":"one sentence on why this focus matters today","covered":["t12"]}'
       ].concat(_voiceBlock()).join('\n')
     },
     { role: 'user', content: context }
-  ]);
+  ]));
 }
 
 function callLifeDashboard(context) {
@@ -615,6 +626,11 @@ const ACTIONS = {
   setTodayGoal:     a => setTodayGoal(a),
   setTodayStatus:   a => setTodayStatus(a),
   completeTodayTask: a => completeTodayTask(a),
+  addFocusBlock:       a => addFocusBlock(a),
+  addScheduledAction:  a => addScheduledAction(a),
+  scheduleTodayItem:   a => scheduleTodayItem(a),
+  updateScheduledBlock: a => updateScheduledBlock(a),
+  removeScheduledBlock: a => removeScheduledBlock(a),
   refreshGoogle:    () => ({ tasks: refreshGoogleTasks(), calendar: refreshGoogleCalendar(), view: getTodayView() }),
   refreshTasks:     () => ({ tasks: refreshGoogleTasks(), calendar: refreshGoogleCalendar(), view: getTodayView() }),   // the earlier name of the same thing
   getGoogleDay:     () => getGoogleDay(),
@@ -744,8 +760,8 @@ function _ensureHeaders() {
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.15';
-const APP_VERSION = '2026.11.29';
+const APP_RELEASE = '1.16';
+const APP_VERSION = '2026.11.30';
 
 const AI_CALLS_PER_HOUR = 40;
 const LIMITS = { title: 200, text: 2000, tags: 120, message: 1000, voice: 800, voiceName: 30, myVoices: 12 };
@@ -975,7 +991,7 @@ function _h(s) {
 // your computer can print one combined calendar; nobody else can.
 //
 // ONE-TIME SETUP, in the sheet: Extensions > Apps Script > Services (+) > Google Calendar API > Add, then approve Google's permission screen
-// (press Refresh Google on The Workday). Until then The Workday says so and uses whatever the planner sent.
+// (press Refresh Google on the To do card). Until then Today's Look says so and uses whatever the planner sent.
 //
 // Which calendars: your main calendar and every calendar ticked in Google Calendar's left-hand list. Nothing else is filtered out: all-day
 // items, out-of-office and "free" events are kept. They are only treated differently for open time: an all-day item has no hours, and an
@@ -1130,7 +1146,7 @@ function _focusWindows(busy, ws, we, minFocus) {
 }
 
 /**
- * The schedule The Workday and the coach use. Outlook windows come from the planner (meta); Google windows from this script's own calendar
+ * The schedule Today's Look and the coach use. Outlook windows come from the planner (meta); Google windows from this script's own calendar
  * read. With no Google snapshot (the Calendar service is not on) it falls back to whatever the planner computed.
  */
 function _scheduleFor(meta, gcal) {
@@ -1144,29 +1160,31 @@ function _scheduleFor(meta, gcal) {
   };
   if (!haveG) {
     if (!plan) return null;
-    return { busy: plan.busy || [], focus: plan.focus || [], budget: plan.budget === undefined ? '' : plan.budget, allDay: plan.allDay || 0, sources: sources };
+    return { busy: plan.busy || [], busyAll: plan.busy || [], focus: plan.focus || [], budget: plan.budget === undefined ? '' : plan.budget, allDay: plan.allDay || 0, sources: sources };
   }
   const st = Object.assign({}, WORK_DEFAULTS, (plan && plan.settings) || {});
   const now = _nowMinutes();
   const ws = Math.max(_toMin(st.workStart), now), we = _toMin(st.workEnd);
   const outlook = ((plan && plan.busy) || []).filter(w => w.src !== 'Google');   // the planner's own Google windows are replaced by ours
-  const busy = outlook.concat(gcal.busy || []).filter(w => _toMin(w.end) > now).sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  const byStart = (a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
+  const busyAll = outlook.concat(gcal.busy || []).sort(byStart);          // the whole day, for the calendar view
+  const busy = busyAll.filter(w => _toMin(w.end) > now);                  // what is still ahead, for the coach
   const focus = _focusWindows(busy, ws, we, st.minFocus);
   const total = focus.reduce((s, w) => s + w.minutes, 0);
-  return { busy: busy, focus: focus, budget: Math.round(total / 60 / st.hoursPerPoint * 10) / 10, allDay: gcal.allDay || 0, sources: sources };
+  return { busy: busy, busyAll: busyAll, focus: focus, budget: Math.round(total / 60 / st.hoursPerPoint * 10) / 10, allDay: gcal.allDay || 0, sources: sources };
 }
 // ============================================================
 // GTasks.js
 // ============================================================
-// GTasks.js: Google Tasks that are due today (or overdue) go into The Workday's to-do list, each with a link back to the task.
+// GTasks.js: Google Tasks that are due today (or overdue) go into the to-do list, each with a link back to the task.
 //
 // Read-only, and only the sheet owner's own tasks: the sheet's script reads them with its owner's Google account through the Tasks
 // service. Google does not put tasks in a calendar's iCal link, which is why this is not part of the calendar feed.
 //
 // ONE-TIME SETUP, in the sheet: Extensions > Apps Script > Services (the + beside it) > Google Tasks API > Add. Then run anything in
-// LearnerBot once and approve Google's permission screen. Until then this does nothing and The Workday says so.
+// LearnerBot once and approve Google's permission screen. Until then this does nothing and the to-do card says so.
 //
-// A refresh runs with every planner feed (6 AM and 3 PM), at the 7 AM daily focus, and when the Refresh button on The Workday is pressed.
+// A refresh runs with every planner feed (6 AM and 3 PM), at the 7 AM daily focus, and when Refresh Google on the To do card is pressed.
 
 const GTASKS_KEY = 'gtasks_status';
 const GTASKS_MAX = 40;
@@ -1559,7 +1577,7 @@ function saveNotifications(a) {
 
 // ---- Triggers (one per switched-on schedule) ----------------
 
-// ---- The Workday's own refresh (no email): Google Tasks and Google Calendar on weekdays, at the hours the person chose ----
+// ---- The sheet's own Google refresh (no email; the name Workday is kept inside the code): Google Tasks and Google Calendar on weekdays, at the hours the person chose ----
 
 const WORKDAY_DEFAULT_HOURS = [6, 15];
 
@@ -1622,7 +1640,7 @@ function menuEmailsOff() {
   ['daily', 'weekly', 'nudge'].forEach(k => { s[k].enabled = false; });
   _props().setProperty('NOTIFY', JSON.stringify(s));
   _syncTriggers(s);
-  SpreadsheetApp.getUi().alert('All scheduled emails are off. (The Workday\'s own refresh, if you turned it on, is separate and keeps running.) You can turn emails back on in the LearnerBot site: \u2699 \u2192 Email updates.');
+  SpreadsheetApp.getUi().alert('All scheduled emails are off. (The automatic Google refresh, if you turned it on, is separate and keeps running.) You can turn emails back on in the LearnerBot site: \u2699 \u2192 Email updates.');
 }
 
 // ---- Scheduled jobs -----------------------------------------
@@ -1706,7 +1724,7 @@ function _list(items) {
 }
 
 function _dailyHtml(r) {
-  return '<h2 style="font-family:sans-serif">Today\'s focus: ' + _h(r.focus) + '</h2>' + _list(r.actions) +
+  return '<h2 style="font-family:sans-serif">Today\'s focus: ' + _h(r.focus) + '</h2>' + (r.assessment ? '<p style="font-family:sans-serif">' + _h(r.assessment) + '</p>' : '') + _list(r.actions) +
     '<p style="font-family:sans-serif;color:#666"><em>' + _h(r.reason) + '</em></p>' + _footer();
 }
 
@@ -1928,7 +1946,7 @@ const TABS = {
   Chat:     ['Timestamp', 'Role', 'Text'],
   Settings: ['Key', 'Value'],
   // The Today page (Today.js): items sent by the planner or added by hand. Status is open, done or skipped.
-  Today:    ['ID', 'Date', 'Title', 'Source', 'SourceID', 'Points', 'State', 'GoalID', 'Flags', 'Status', 'StatusDate', 'Minutes', 'LogID', 'Ref', 'Note', 'Links']
+  Today:    ['ID', 'Date', 'Title', 'Source', 'SourceID', 'Points', 'State', 'GoalID', 'Flags', 'Status', 'StatusDate', 'Minutes', 'LogID', 'Ref', 'Note', 'Links', 'Start', 'Dur', 'Tags']
 };
 
 const PRIORITIES    = ['high', 'medium', 'low'];
@@ -2771,7 +2789,7 @@ function updatePlan(a) {
 // ============================================================
 // Today.js
 // ============================================================
-// Today.js: the "Today's Tasks" page.
+// Today.js: the to-do list (a folded card on the Goals Dashboard) and Today's Look (the day from 8 AM to 8 PM, with things placed on it).
 //
 // A planner on the owner's computer gathers the day's work (calendar gaps, work items, team objectives) into a file and
 // sends a trimmed copy here with setTodayFeed. Titles arrive already shortened, and nothing else about the work (links,
@@ -2781,7 +2799,9 @@ function updatePlan(a) {
 // Tab columns (see TABS in Sheets.js):
 //   0 ID  1 Date  2 Title  3 Source (planner | me)  4 SourceID  5 Points  6 State  7 GoalID  8 Flags
 //   9 Status (open | done | skipped | closed)  10 StatusDate  11 Minutes  12 LogID  13 Ref  14 Note  15 Links (JSON)
-//   Source is planner (work items), google-task (Google Tasks, see GTasks.js) or me (added by hand). closed = it left its source
+//   16 Start (hh:mm, when it is placed on Today's Look)  17 Dur (minutes)  18 Tags (focus blocks)
+//   Source is planner (work items), google-task (Google Tasks, see GTasks.js) or me (added by hand), plus two kinds that exist only on the
+//   calendar view: focus (a loose block of work or learning, taggable) and focus-action (a bullet from the daily focus, placed on the day). closed = it left its source
 //   (finished or dropped there) since the last refresh.
 
 const TODAY_STATUSES = ['open', 'done', 'skipped', 'closed'];
@@ -2790,7 +2810,11 @@ const TODAY_TITLE_MAX = 80;
 const TODAY_KEEP_DAYS = 45;      // older rows are removed whenever a feed arrives; their log entries stay
 const TODAY_CARRY_DAYS = 3;      // open items from the last few days are shown as "carried over"
 const TODAY_META_KEY = 'today_feed';
-const TODAY_COACH_ITEMS = 12;
+const TODAY_COACH_ITEMS = 20;
+const LOOK_START = 8 * 60;       // Today's Look runs from 8am ...
+const LOOK_END = 20 * 60;        // ... to 8pm
+const LOOK_MIN = 15, LOOK_MAX = 240;
+const _isBlockSource = s => s === 'focus' || s === 'focus-action';
 
 const _todayItem = r => ({
   id: String(r[0]), date: _day(r[1]).slice(0, 10), title: String(r[2]), source: String(r[3] || 'me'),
@@ -2800,7 +2824,9 @@ const _todayItem = r => ({
   status: TODAY_STATUSES.indexOf(String(r[9])) >= 0 ? String(r[9]) : 'open',
   doneOn: r[10] === '' || r[10] == null ? '' : _day(r[10]).slice(0, 10),
   minutes: r[11] === '' || r[11] == null ? 0 : _minutes(r[11]),
-  logId: String(r[12] || ''), note: String(r[14] || ''), links: _parseLinks(r[15])
+  logId: String(r[12] || ''), note: String(r[14] || ''), links: _parseLinks(r[15]),
+  start: _cleanHm(r[16]), dur: r[17] === '' || r[17] == null ? 0 : Math.max(0, Math.min(LOOK_MAX, Math.round(Number(r[17]) || 0))),
+  tags: _parseTags(r[18])
 });
 
 /** Links on an item (a Google Task and what it points at). Only https links to Google are kept, so nothing odd can be opened from here. */
@@ -2815,6 +2841,13 @@ function _cleanLinks(list) {
 function _parseLinks(raw) {
   if (!raw) return [];
   try { return _cleanLinks(JSON.parse(String(raw))); } catch (_) { return []; }
+}
+
+/** Tags used on focus blocks lately, most used first, so the page can offer them. */
+function _tagHints(all) {
+  const n = {};
+  all.filter(t => t.source === 'focus').forEach(t => t.tags.forEach(g => { n[g] = (n[g] || 0) + 1; }));
+  return Object.keys(n).sort((a, b) => n[b] - n[a] || (a < b ? -1 : 1)).slice(0, 8);
 }
 
 function _todayRows() { return rows('Today').filter(r => r[0] !== '' && r[0] != null); }
@@ -2832,14 +2865,15 @@ function getTodayView() {
   const items = all.filter(t => t.date === today);
   const have = {};
   items.forEach(t => { have[t.source + '|' + (t.sourceId || t.title)] = true; });
-  const carried = all.filter(t => t.date < today && t.date >= cutoff && t.status === 'open' && !have[t.source + '|' + (t.sourceId || t.title)]);
+  const carried = all.filter(t => t.date < today && t.date >= cutoff && t.status === 'open' && !_isBlockSource(t.source) && !have[t.source + '|' + (t.sourceId || t.title)]);
   const meta = _todayMeta();
   const gcal = getGoogleCalStatus();
   const sched = _scheduleFor(meta, gcal);
   // With a schedule, `feed` carries the merged windows even before the planner has delivered today's plan.
   const feed = sched ? Object.assign({}, meta || { date: today, at: '', objectives: [] },
     { busy: sched.busy, focus: sched.focus, budget: sched.budget, allDay: sched.allDay, sources: sched.sources }) : meta;
-  return { date: today, fresh: !!meta && meta.date === today, feed: feed, items: items, carried: carried, tasks: getGoogleTasksStatus(), calendar: gcal, schedule: getWorkdaySchedule() };
+  return { date: today, fresh: !!meta && meta.date === today, feed: feed, items: items, carried: carried, tasks: getGoogleTasksStatus(), calendar: gcal, schedule: getWorkdaySchedule(),
+    busy: sched ? sched.busyAll : [], tagHints: _tagHints(all) };
 }
 
 // ---- cleaning what arrives ------------------------------------
@@ -2870,7 +2904,7 @@ function _cleanFeedMeta(date, m) {
     at: new Date().toISOString(),
     budget: _cleanPoints(m.budget),
     focus: list(m.focus, 12).map(win).filter(w => w.start && w.end),
-    busy: list(m.busy, 30).map(w => ({ start: _cleanHm(w && w.start), end: _cleanHm(w && w.end), src: w && (w.src === 'Outlook' || w.src === 'Google') ? w.src : '' })).filter(w => w.start && w.end),
+    busy: list(m.busy, 40).map(w => ({ start: _cleanHm(w && w.start), end: _cleanHm(w && w.end), src: w && (w.src === 'Outlook' || w.src === 'Google') ? w.src : '' })).filter(w => w.start && w.end),
     allDay: Math.max(0, Math.min(20, Math.round(Number(m.allDay) || 0))),   // how many all-day items, never their names
     outlookKnown: m.outlookKnown !== false,                                  // false: the planner had no Outlook calendar for today
     settings: _cleanSettings(m.settings),
@@ -3036,21 +3070,177 @@ function completeTodayTask(a) {
   }
   const item = _todayItem(r);
   const mins = _cleanMinutes(a.minutes);
-  let tags = ['TASK'];
+  let tags = item.source === 'focus' ? (item.tags.length ? item.tags.slice() : ['FOCUS']) : ['TASK'];
   if (item.goalId) {
     const g = rows('Goals').find(x => String(x[0]) === item.goalId);
     if (g) { const gt = _parseTags(g[5]); if (gt.length) tags = gt.slice(0, 4); }
   }
-  const text = 'Completed: ' + item.title + (item.source === 'planner' && item.sourceId ? ' [#' + item.sourceId + ']' : '');   // only work items have a number worth keeping
+  const text = item.source === 'focus' ? 'Focus time' + (item.tags.length ? ' (' + item.tags.join(', ') + ')' : '')
+    : 'Completed: ' + item.title + (item.source === 'planner' && item.sourceId ? ' [#' + item.sourceId + ']' : '');   // only work items have a number worth keeping
   const entry = addJournalEntry(text, tags, mins, a.ref, a.replay === true);
   _writeSpan('Today', i, 10, ['done', _today(), mins, entry.id]);   // Status, StatusDate, Minutes, LogID
   maybePurge();
   return { task: _todayItem(rows('Today')[i]), entry: entry, streak: getStreak(), weekMinutes: weekMinutes() };
 }
 
+// ---- Today's Look: placing things on the day -------------------
+
+/** Where the day is already taken: booked windows from both calendars, and everything the person has placed. */
+function _takenToday(exceptId) {
+  const v = getTodayView();
+  const taken = [];
+  (v.busy || []).forEach(w => { const s = _toMin(w.start), e = _toMin(w.end); if (s != null && e != null && e > s) taken.push({ s: s, e: e, what: 'something already booked (' + w.start + '\u2013' + w.end + ')' }); });
+  v.items.forEach(t => {
+    if (String(t.id) === String(exceptId) || !t.start || !t.dur || t.status === 'skipped' || t.status === 'closed') return;
+    const s = _toMin(t.start);
+    taken.push({ s: s, e: s + t.dur, what: t.source === 'focus' ? 'a focus block' : '\u201c' + t.title + '\u201d', block: t });
+  });
+  return taken;
+}
+
+function _cleanTagList(v) {
+  const raw = Array.isArray(v) ? v.join(',') : String(v == null ? '' : v);
+  return _parseTags(raw).map(t => t.replace(/[^A-Z0-9 _&\/-]/g, '').trim().slice(0, 20)).filter(Boolean).filter((t, i, a) => a.indexOf(t) === i).slice(0, 4);
+}
+
+/** A start time and length that fit the day (8am to 8pm). Returns minutes since midnight for both ends. */
+function _cleanSlot(start, minutes) {
+  const s = _toMin(_cleanHm(start));
+  const d = Math.round(Number(minutes));
+  if (s == null) throw _err('bad_request', 'Choose a start time.');
+  if (!Number.isFinite(d) || d < LOOK_MIN || d > LOOK_MAX) throw _err('bad_request', 'A block is between ' + LOOK_MIN + ' minutes and ' + _fmtMinutes(LOOK_MAX) + ' long.');
+  if (s < LOOK_START || s + d > LOOK_END) throw _err('bad_request', 'Today\'s Look runs from 8:00 AM to 8:00 PM, so that does not fit.');
+  return { s: s, e: s + d, start: _hm(s), dur: d };
+}
+
+/** A clash is an error, except two focus blocks with exactly the same start and end, which become one. */
+function _clash(slot, taken, mergeable) {
+  let merge = null;
+  for (let k = 0; k < taken.length; k++) {
+    const x = taken[k];
+    if (slot.s < x.e && x.s < slot.e) {
+      if (mergeable && x.block && x.block.source === 'focus' && x.s === slot.s && x.e === slot.e) { merge = x.block; continue; }
+      throw _err('conflict', 'That overlaps ' + x.what + '.');
+    }
+  }
+  return merge;
+}
+
+function _blockOut(id) {
+  const i = rows('Today').findIndex(r => String(r[0]) === String(id));
+  return i < 0 ? null : _todayItem(rows('Today')[i]);
+}
+
+function _lookResult(id) { return { task: id == null ? null : _blockOut(id), view: getTodayView() }; }
+
+/** Adds tags onto an existing focus block (merging two blocks that cover the same time). */
+function _mergeTags(i, tags) {
+  const r = rows('Today')[i];
+  const all = _cleanTagList(_parseTags(r[18]).concat(tags));
+  _writeSpan('Today', i, 19, [all.join(',')]);
+  return String(r[0]);
+}
+
+/** A loose 'focus' block: work or learning that is not a listed item. Same start and end as another focus block merges into it. */
+function addFocusBlock(a) {
+  a = a || {};
+  const rf = _ref(a.ref);
+  if (rf && a.replay === true) { const hit = _todayRows().find(r => String(r[13]) === rf); if (hit) return _lookResult(hit[0]); }
+  const slot = _cleanSlot(a.start, a.minutes == null ? 30 : a.minutes);
+  const tags = _cleanTagList(a.tags);
+  return withLock(() => {
+    const merge = _clash(slot, _takenToday(), true);
+    if (merge) { const i = _todayIndex(merge.id); return _lookResult(_mergeTags(i, tags)); }
+    const id = String(_nextId('Today'));
+    _appendRows('Today', [[id, _today(), 'Focus', 'focus', '', '', '', '', '', 'open', '', '', '', rf, '', '', slot.start, slot.dur, tags.join(',')]]);
+    return _lookResult(id);
+  });
+}
+
+/** A bullet from the daily focus, placed on the day. It becomes its own row so it can be moved, finished and logged. */
+function addScheduledAction(a) {
+  a = a || {};
+  const rf = _ref(a.ref);
+  if (rf && a.replay === true) { const hit = _todayRows().find(r => String(r[13]) === rf); if (hit) return _lookResult(hit[0]); }
+  const title = _clip(a.title, TODAY_TITLE_MAX);
+  if (!title) throw _err('bad_request', 'That needs a title.');
+  const slot = _cleanSlot(a.start, a.minutes == null ? 30 : a.minutes);
+  return withLock(() => {
+    _clash(slot, _takenToday(), false);
+    const id = String(_nextId('Today'));
+    _appendRows('Today', [[id, _today(), title, 'focus-action', title, '', '', '', '', 'open', '', '', '', rf, '', '', slot.start, slot.dur, '']]);
+    return _lookResult(id);
+  });
+}
+
+/** Puts an item that is already on the to-do list onto the day, or takes it off again (empty start). */
+function scheduleTodayItem(a) {
+  a = a || {};
+  return withLock(() => {
+    const i = _todayIndex(a.id);
+    const r = rows('Today')[i];
+    const item = _todayItem(r);
+    if (_isBlockSource(item.source)) throw _err('bad_request', 'Use updateScheduledBlock for that.');
+    if (item.status === 'done' || item.status === 'closed') throw _err('bad_request', 'That one is finished, so it cannot be placed.');
+    if (a.start === '' || a.start == null) {
+      _writeSpan('Today', i, 17, ['', '']);
+      return _lookResult(item.id);
+    }
+    const guess = item.dur || (item.points != null ? Math.max(LOOK_MIN, Math.min(120, Math.round(item.points * 2) * 15)) : 30);
+    const slot = _cleanSlot(a.start, a.minutes == null ? guess : a.minutes);
+    _clash(slot, _takenToday(item.id), false);
+    if (item.date !== _today()) _writeSpan('Today', i, 2, [_today()]);   // a carried-over item moves to today when it is placed
+    _writeSpan('Today', i, 17, [slot.start, slot.dur]);
+    return _lookResult(item.id);
+  });
+}
+
+/** Moves, resizes or retags a placed block. A focus block that now covers exactly the same time as another one merges into it. */
+function updateScheduledBlock(a) {
+  a = a || {};
+  return withLock(() => {
+    const i = _todayIndex(a.id);
+    const item = _todayItem(rows('Today')[i]);
+    if (!item.start) throw _err('bad_request', 'That is not placed on the day.');
+    const start = a.start == null ? item.start : a.start;
+    const minutes = a.minutes == null ? item.dur : a.minutes;
+    const slot = _cleanSlot(start, minutes);
+    const tags = item.source === 'focus' && a.tags != null ? _cleanTagList(a.tags) : item.tags;
+    const merge = _clash(slot, _takenToday(item.id), item.source === 'focus');
+    if (merge) {
+      const j = _todayIndex(merge.id);
+      const keep = _mergeTags(j, tags);
+      _deleteRowNumbers('Today', [i + 2]);
+      return _lookResult(keep);
+    }
+    _writeSpan('Today', i, 17, [slot.start, slot.dur, tags.join(',')]);
+    return _lookResult(item.id);
+  });
+}
+
+/** Takes a block off the day. A focus block or a placed bullet is removed; a to-do item only loses its time and stays on the list. */
+function removeScheduledBlock(a) {
+  a = a || {};
+  return withLock(() => {
+    const i = _todayIndex(a.id);
+    const item = _todayItem(rows('Today')[i]);
+    if (_isBlockSource(item.source)) {
+      if (item.status === 'done') throw _err('bad_request', 'That one is finished and logged, so it stays.');
+      _deleteRowNumbers('Today', [i + 2]);
+      return { task: null, view: getTodayView() };
+    }
+    _writeSpan('Today', i, 17, ['', '']);
+    return _lookResult(item.id);
+  });
+}
+
 // ---- what the coach reads -------------------------------------
 
-/** Added to the 7am context. It says plainly when no fresh plan arrived, so the coach never plans from yesterday's work. */
+/**
+ * Added to the 7am context. It says plainly when no fresh plan arrived, so the coach never plans from yesterday's work.
+ * The to-do list is listed either way (the person's own items and Google Tasks do not depend on the planner), each with a key the
+ * coach hands back in `covered` to say which ones its actions already take care of.
+ */
 function buildTodayContext() {
   const v = getTodayView();
   const lines = ['TODAY\'S WORK PLAN (sent by the user\'s planner; titles are shortened; refer to work items by their ID):'];
@@ -3061,21 +3251,27 @@ function buildTodayContext() {
     if (f.busy && f.busy.length) lines.push('Booked: ' + f.busy.map(w => w.start + '-' + w.end + (w.src ? ' (' + w.src + ')' : '')).join(', '));
     if (f.budget !== '' && f.budget != null) lines.push('Realistic budget today: about ' + f.budget + ' story points of work');
   };
+  const goalName = {};
+  getActiveGoals().forEach(g => { goalName[g.id] = g.title; });
+  const open = v.items.concat(v.carried).filter(t => t.status === 'open' && !_isBlockSource(t.source) && (v.fresh || t.source !== 'planner')).slice(0, TODAY_COACH_ITEMS);
+  const todoLines = () => {
+    lines.push('');
+    lines.push(open.length ? 'TO-DO LIST (open items; each starts with its key, which you give back in "covered" when your actions take care of it):' : 'TO-DO LIST: (nothing open)');
+    open.forEach(t => {
+      const bits = [t.state, t.points != null ? t.points + ' pts' : '', t.flags.join('/'), t.note, t.date < v.date ? 'carried over from ' + t.date : '',
+        t.goalId && goalName[t.goalId] ? 'linked to goal "' + goalName[t.goalId] + '"' : ''].filter(Boolean);
+      lines.push('- [t' + t.id + '] ' + (t.source === 'google-task' ? 'Google Task: ' : (t.sourceId ? '#' + t.sourceId + ' ' : '')) + t.title + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
+    });
+  };
   if (!v.fresh) {
     lines.push('(no fresh plan arrived today, so do not assume any work items)' + (f && f.date ? ' Last plan was for ' + f.date + '.' : ''));
     if (f && f.sources && f.sources.google === 'ok') scheduleLines();   // open time is still known from the Google calendar
+    todoLines();
     return lines.join('\n');
   }
   scheduleLines();
-  const goalName = {};
-  getActiveGoals().forEach(g => { goalName[g.id] = g.title; });
-  const open = v.items.filter(t => t.status === 'open').slice(0, TODAY_COACH_ITEMS);
-  const done = v.items.filter(t => t.status === 'done').length;
-  lines.push(open.length ? 'Open items:' : 'Open items: (none)');
-  open.forEach(t => {
-    const bits = [t.state, t.points != null ? t.points + ' pts' : '', t.flags.join('/'), t.note, t.goalId && goalName[t.goalId] ? 'linked to goal "' + goalName[t.goalId] + '"' : ''].filter(Boolean);
-    lines.push('- ' + (t.source === 'google-task' ? 'Google Task: ' : (t.sourceId ? '#' + t.sourceId + ' ' : '')) + t.title + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
-  });
+  todoLines();
+  const done = v.items.filter(t => t.status === 'done' && !_isBlockSource(t.source)).length;
   if (done) lines.push(done + ' item' + (done === 1 ? ' is' : 's are') + ' already done today.');
   if (f.objectives && f.objectives.length) {
     lines.push('Team objectives this quarter:');
@@ -3087,7 +3283,7 @@ function buildTodayContext() {
 /** Added to the weekly context: how many of the week's planned tasks got finished, and the time recorded on them. */
 function buildTodayWeekContext() {
   const cutoff = _daysAgo(6);
-  const week = _todayRows().map(_todayItem).filter(t => t.date >= cutoff);
+  const week = _todayRows().map(_todayItem).filter(t => t.date >= cutoff && !_isBlockSource(t.source));
   if (!week.length) return '';
   const done = week.filter(t => t.status === 'done');
   const mins = done.reduce((s, t) => s + t.minutes, 0);

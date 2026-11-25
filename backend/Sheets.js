@@ -20,7 +20,7 @@ const TABS = {
   Chat:     ['Timestamp', 'Role', 'Text'],
   Settings: ['Key', 'Value'],
   // The Today page (Today.js): items sent by the planner or added by hand. Status is open, done or skipped.
-  Today:    ['ID', 'Date', 'Title', 'Source', 'SourceID', 'Points', 'State', 'GoalID', 'Flags', 'Status', 'StatusDate', 'Minutes', 'LogID', 'Ref', 'Note', 'Links']
+  Today:    ['ID', 'Date', 'Title', 'Source', 'SourceID', 'Points', 'State', 'GoalID', 'Flags', 'Status', 'StatusDate', 'Minutes', 'LogID', 'Ref', 'Note', 'Links', 'Start', 'Dur', 'Tags']
 };
 
 const PRIORITIES    = ['high', 'medium', 'low'];

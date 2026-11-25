@@ -5,8 +5,8 @@
 
 const Mock = (() => {
   const KEY = 'learnerbot.demo.v1';
-  const VERSION = '2026.11.29';
-  const RELEASE = '1.15';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
+  const VERSION = '2026.11.30';
+  const RELEASE = '1.16';   // the backend version this demo mirrors (a test keeps it equal to backend/Code.js)
   const DAY = 864e5;
   // Local calendar day, n days ago (negative = in the future), formatted yyyy-mm-dd.
   const iso = n => { const d = new Date(Date.now() - n * DAY), p = x => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
@@ -108,6 +108,12 @@ const Mock = (() => {
       gt('gt-lib', 'Renew the library card', ['DUE-TODAY'], [{ u: 'https://tasks.google.com/task/gt-lib', d: 'Open in Google Tasks' }, { u: 'https://mail.google.com/mail/u/0/#inbox/demo', d: 'Library reminder email' }]),
       gt('gt-book', 'Return the borrowed book', ['OVERDUE'], [{ u: 'https://tasks.google.com/task/gt-book', d: 'Open in Google Tasks' }])
     ]);
+    const rep = db.reports.daily;
+    if (rep && rep.data && rep.data.covered === undefined) {   // the first demo focus gets an assessment and says which to-do items it covers
+      const sum = db.today.find(t => t.date === d && t.sourceId === '2057');
+      rep.data.assessment = 'Nothing is overdue except one small Google Task, so the CLI project can lead. The data structures summary is due in two days and needs a block today.';
+      rep.data.covered = sum ? ['t' + sum.id] : [];
+    }
     db.todayMeta = { date: d, at: new Date().toISOString(), budget: 1.8,
       focus: [{ start: '09:30', end: '12:00', minutes: 150 }, { start: '13:00', end: '15:00', minutes: 120 }, { start: '15:30', end: '17:00', minutes: 90 }], busy: [{ start: '09:00', end: '09:30', src: 'Outlook' }, { start: '12:00', end: '13:00', src: 'Google' }, { start: '15:00', end: '15:30', src: 'Outlook' }], allDay: 1,
       sources: { outlook: 'ok', google: 'ok' },
@@ -124,8 +130,76 @@ const Mock = (() => {
   function todayView() {
     if (!db.todayMeta || db.todayMeta.date !== iso(0)) demoFeed();
     const d = iso(0);
-    return { date: d, fresh: true, feed: db.todayMeta, items: db.today.filter(t => t.date === d).map(t => ({ ...t })), carried: [], tasks: tasksStatus(), calendar: { enabled: true, at: new Date().toISOString(), error: '', busy: [], allDay: 1, calendars: 2 }, schedule: { enabled: !!(db.workday && db.workday.enabled), hours: (db.workday && db.workday.hours) || [6, 15], loader: 2, canSchedule: true, tz: 'your time zone' } };
+    const hints = {};
+    db.today.filter(t => t.source === 'focus').forEach(t => (t.tags || []).forEach(g => { hints[g] = (hints[g] || 0) + 1; }));
+    return { date: d, fresh: true, feed: db.todayMeta, items: db.today.filter(t => t.date === d).map(t => ({ start: '', dur: 0, tags: [], ...t })), carried: [], busy: db.todayMeta.busy.slice(), tagHints: Object.keys(hints).sort((a, b) => hints[b] - hints[a]).slice(0, 8), tasks: tasksStatus(), calendar: { enabled: true, at: new Date().toISOString(), error: '', busy: [], allDay: 1, calendars: 2 }, schedule: { enabled: !!(db.workday && db.workday.enabled), hours: (db.workday && db.workday.hours) || [6, 15], loader: 2, canSchedule: true, tz: 'your time zone' } };
   }
+  // ---- placing things on Today's Look (mirrors the Today.js functions of the same names) ----
+  const LOOK_S = 480, LOOK_E = 1200;
+  const hmToMin = hm => { const m = /^(\d{2}):(\d{2})$/.exec(String(hm || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+  const minToHm = n => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+  const cleanTagList = v => Array.from(new Set((Array.isArray(v) ? v.join(',') : String(v || '')).split(',').map(s => s.trim().toUpperCase().replace(/[^A-Z0-9 _&\/-]/g, '').slice(0, 20)).filter(Boolean))).slice(0, 4);
+  function lookSlot(start, minutes) {
+    const s = hmToMin(start), d = Math.round(Number(minutes));
+    need(s != null, 'Choose a start time.');
+    need(Number.isFinite(d) && d >= 15 && d <= 240, 'A block is between 15 minutes and 4h long.');
+    need(s >= LOOK_S && s + d <= LOOK_E, 'Today\'s Look runs from 8:00 AM to 8:00 PM, so that does not fit.');
+    return { s, e: s + d, start: minToHm(s), dur: d };
+  }
+  function lookTaken(exceptId) {
+    const out = db.todayMeta.busy.map(w => ({ s: hmToMin(w.start), e: hmToMin(w.end), what: 'something already booked (' + w.start + '\u2013' + w.end + ')' }));
+    db.today.forEach(t => { if (t.date === iso(0) && t.start && t.dur && t.id !== String(exceptId) && t.status !== 'skipped') out.push({ s: hmToMin(t.start), e: hmToMin(t.start) + t.dur, what: t.source === 'focus' ? 'a focus block' : '\u201c' + t.title + '\u201d', block: t }); });
+    return out;
+  }
+  function lookClash(slot, taken, mergeable) {
+    let merge = null;
+    taken.forEach(x => {
+      if (slot.s < x.e && x.s < slot.e) {
+        if (mergeable && x.block && x.block.source === 'focus' && x.s === slot.s && x.e === slot.e) { merge = x.block; return; }
+        const e = new Error('That overlaps ' + x.what + '.'); e.code = 'conflict'; throw e;
+      }
+    });
+    return merge;
+  }
+  function lookAction(action, a) {
+    todayView();
+    const out = t => { save(); return { task: t ? { start: '', dur: 0, tags: [], ...t } : null, view: todayView() }; };
+    if (action === 'addFocusBlock') {
+      const slot = lookSlot(a.start, a.minutes == null ? 30 : a.minutes), tags = cleanTagList(a.tags);
+      const merge = lookClash(slot, lookTaken(), true);
+      if (merge) { merge.tags = cleanTagList((merge.tags || []).concat(tags)); return out(merge); }
+      const t = { id: nextId(db.today), date: iso(0), title: 'Focus', source: 'focus', sourceId: '', points: null, state: '', goalId: '', flags: [], status: 'open', doneOn: '', minutes: 0, logId: '', note: '', links: [], start: slot.start, dur: slot.dur, tags };
+      db.today.push(t); return out(t);
+    }
+    if (action === 'addScheduledAction') {
+      const title = clip(a.title, 80);
+      need(title, 'That needs a title.');
+      const slot = lookSlot(a.start, a.minutes == null ? 30 : a.minutes);
+      lookClash(slot, lookTaken(), false);
+      const t = { id: nextId(db.today), date: iso(0), title, source: 'focus-action', sourceId: title, points: null, state: '', goalId: '', flags: [], status: 'open', doneOn: '', minutes: 0, logId: '', note: '', links: [], start: slot.start, dur: slot.dur, tags: [] };
+      db.today.push(t); return out(t);
+    }
+    const t = todayItem(a.id);
+    const block = t.source === 'focus' || t.source === 'focus-action';
+    if (action === 'scheduleTodayItem') {
+      need(!block, 'Use updateScheduledBlock for that.');
+      if (a.start === '' || a.start == null) { t.start = ''; t.dur = 0; return out(t); }
+      const slot = lookSlot(a.start, a.minutes == null ? (t.points != null ? Math.max(15, Math.min(120, Math.round(t.points * 2) * 15)) : 30) : a.minutes);
+      lookClash(slot, lookTaken(t.id), false);
+      t.start = slot.start; t.dur = slot.dur; return out(t);
+    }
+    if (action === 'updateScheduledBlock') {
+      need(t.start, 'That is not placed on the day.');
+      const slot = lookSlot(a.start == null ? t.start : a.start, a.minutes == null ? t.dur : a.minutes);
+      const tags = t.source === 'focus' && a.tags != null ? cleanTagList(a.tags) : (t.tags || []);
+      const merge = lookClash(slot, lookTaken(t.id), t.source === 'focus');
+      if (merge) { merge.tags = cleanTagList((merge.tags || []).concat(tags)); db.today = db.today.filter(x => x !== t); return out(merge); }
+      t.start = slot.start; t.dur = slot.dur; t.tags = tags; return out(t);
+    }
+    if (block) { need(t.status !== 'done', 'That one is finished and logged, so it stays.'); db.today = db.today.filter(x => x !== t); return out(null); }
+    t.start = ''; t.dur = 0; return out(t);
+  }
+
   function todayItem(id) {
     const t = db.today.find(x => x.id === String(id));
     if (!t) throw notFound('That task was not found.');
@@ -328,8 +402,9 @@ const Mock = (() => {
     const top = db.goals.filter(g => g.status === 'active').sort((x, y) => PRI[x.priority] - PRI[y.priority])[0];
     db.reports.daily = { date: new Date().toISOString(), type: 'daily', score: '', data: top
       ? { focus: top.title, actions: ['Spend 25 focused minutes on it', 'Write down one thing you got stuck on', 'Pick the very next step for tomorrow'],
-          reason: 'This is your highest-priority active goal. (Demo mode: canned coaching.)' }
-      : { focus: 'Add a goal', actions: ['Write down one thing you want to learn'], reason: 'Nothing is active yet.' } };
+          reason: 'This is your highest-priority active goal. (Demo mode: canned coaching.)',
+          assessment: 'Your highest-priority goal and your to-do list pull the same way today, so start with the goal and fit the small tasks around it. (Demo mode: canned coaching.)', covered: [] }
+      : { focus: 'Add a goal', actions: ['Write down one thing you want to learn'], reason: 'Nothing is active yet.', assessment: '', covered: [] } };
   }
 
   function runWeekly() {
@@ -452,12 +527,18 @@ const Mock = (() => {
         save();
         return { task: { ...t }, ...out };
       }
+      case 'addFocusBlock':
+      case 'addScheduledAction':
+      case 'scheduleTodayItem':
+      case 'updateScheduledBlock':
+      case 'removeScheduledBlock': return lookAction(action, a);
       case 'completeTodayTask': {
         const t = todayItem(a.id);
         if (t.status === 'done') return { task: { ...t }, entry: null, streak: streak(), weekMinutes: weekMinutes() };
         const mins = cleanMinutes(a.minutes);
         const g = t.goalId ? db.goals.find(x => x.id === t.goalId) : null;
-        const entry = logActivity({ text: 'Completed: ' + t.title + (t.sourceId ? ' [#' + t.sourceId + ']' : ''), tags: g && g.tags.length ? g.tags.slice(0, 4) : ['TASK'], minutes: mins });
+        const isFocus = t.source === 'focus';
+        const entry = logActivity({ text: isFocus ? 'Focus time' + ((t.tags || []).length ? ' (' + t.tags.join(', ') + ')' : '') : 'Completed: ' + t.title + (t.source === 'planner' && t.sourceId ? ' [#' + t.sourceId + ']' : ''), tags: isFocus ? ((t.tags || []).length ? t.tags.slice() : ['FOCUS']) : (g && g.tags.length ? g.tags.slice(0, 4) : ['TASK']), minutes: mins });
         t.status = 'done'; t.doneOn = iso(0); t.minutes = mins; t.logId = entry.id;
         save();
         return { task: { ...t }, entry, streak: streak(), weekMinutes: weekMinutes() };

@@ -40,7 +40,7 @@
     <nav class="tabs" aria-label="Views">
       <div class="views">
         <button class="nav-btn" id="navDash" data-act="view" data-view="dash">Goals Dashboard</button>
-        <button class="nav-btn needs-new" id="navToday" data-act="view" data-view="today">The Workday</button>
+        <button class="nav-btn needs-new" id="navToday" data-act="view" data-view="today">Today's Look</button>
         <button class="nav-btn" id="navReview" data-act="view" data-view="review">Review</button>
         <button class="nav-btn" id="navAsst" data-act="view" data-view="asst">Assistant</button>
         <button class="nav-btn" id="navHist" data-act="view" data-view="history">History</button>
@@ -153,6 +153,10 @@
         <button type="button" class="ghost" data-act="testEmail">Send me a test email</button>
       </div>
     </details>
+    <details class="timings needs-new" id="autoBox">
+      <summary>Automatic refresh <span class="pill" id="autoPill" hidden></span></summary>
+      <div id="autoBody"></div>
+    </details>
     <details class="timings needs-new" id="housekeepBox">
       <summary>Housekeeping</summary>
       <p class="muted" style="margin:6px 0 8px">Removed things are hidden at once and deleted for good after a while, so your sheet stays light.</p>
@@ -186,6 +190,35 @@
   </div>
 </dialog>
 
+<dialog id="lookDlg" aria-labelledby="lookHead">
+  <div class="dlg">
+    <div class="dlg-head"><h2 id="lookHead">Place on your day</h2></div>
+    <p id="lookWhat" class="done-task"></p>
+    <div id="lookPickBox">
+      <label class="head" for="lookItem">What goes here?</label>
+      <select id="lookItem"></select>
+    </div>
+    <div class="lk-fields">
+      <div><label class="head" for="lookStart">Starts</label><select id="lookStart"></select></div>
+      <div><label class="head" for="lookLen">Length</label><select id="lookLen"></select></div>
+    </div>
+    <div id="lookTagsBox">
+      <label class="head" for="lookTags">Tags (optional)</label>
+      <input id="lookTags" type="text" maxlength="60" list="lookTagList" autocomplete="off" placeholder="e.g. SQL, READING" data-enter="lookSave">
+      <datalist id="lookTagList"></datalist>
+      <div class="seg" id="lookTagChips" role="group" aria-label="Recent tags"></div>
+      <p class="muted" style="font-size:12px;margin-top:6px">A focus block is for work or learning that is not already on your list or calendar. Tags let different blocks stand for different things. Blocks that cover exactly the same time merge into one.</p>
+    </div>
+    <p id="lookDlgMsg" class="cfg-msg" role="alert"></p>
+    <div class="row">
+      <button type="button" data-act="lookSave" id="lookSaveBtn">Place</button>
+      <button type="button" class="ghost" data-act="lookDone" id="lookDoneBtn">Mark done</button>
+      <button type="button" class="ghost" data-act="lookRemove" id="lookRemoveBtn">Take off the day</button>
+      <button type="button" class="ghost" data-act="lookCancel">Cancel</button>
+    </div>
+  </div>
+</dialog>
+
 <div id="toasts">
   <div id="undo" role="status" hidden><span id="undoText"></span><button type="button" class="ghost run" id="undoBtn" data-act="undo">Undo</button></div>
   <div id="toast" role="status" aria-live="polite"></div>
@@ -198,5 +231,6 @@
 <script src="js/app.js"></script>
 <script src="js/history.js"></script>
 <script src="js/today.js"></script>
+<script src="js/todayslook.js"></script>
 </body>
 </html>

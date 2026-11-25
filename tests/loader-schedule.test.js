@@ -112,7 +112,7 @@ test('the timer does nothing at the weekend, or when it is switched off, and nev
 });
 
 test('Update now from a sheet with an older loader still works; the loader stays old until Code.gs is pasted', () => {
-  const w = load(root, { oldLoader: true, asVersion: '2026.11.28' });
-  assert.equal(w.ok('updateApp', { expectVersion: '2026.11.29' }).status, 'updated');
+  const w = load(root, { oldLoader: true, asVersion: '2026.11.29' });
+  assert.equal(w.ok('updateApp', { expectVersion: '2026.11.30' }).status, 'updated');
   assert.equal(w.ok('getToday').schedule.canSchedule, false);
 });
