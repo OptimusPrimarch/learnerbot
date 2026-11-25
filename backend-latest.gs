@@ -712,7 +712,7 @@ function _ensureHeaders() {
 const GROQ_MODEL  = 'openai/gpt-oss-120b';
 // APP_RELEASE is the name people see (1.0, 1.1, ...); APP_VERSION is the build id the update check compares,
 // and it only ever goes up. A release is one or more builds; CHANGELOG.md in the site repo maps them.
-const APP_RELEASE = '1.11';
+const APP_RELEASE = '1.12';
 const APP_VERSION = '2026.11.26';
 
 const AI_CALLS_PER_HOUR = 40;

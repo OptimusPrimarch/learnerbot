@@ -5,6 +5,16 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.12 · website only · script build stays 2026.11.26 · 2026-11-25
+
+**Choose whether The Workday shows your team objectives**
+- The **Team objectives** section on The Workday now has a **Show** / **Minimize** button. Minimized, it is one line (how many objectives and
+  the average progress); shown, it lists each objective with its progress and due date
+- It remembers your choice on each device, so your phone and your computer can differ. Until you choose, it stays minimized, as before
+- Works with the keyboard and a screen reader (the button says whether the list is open)
+
+**Needs the script update:** no. Reload the page.
+
 ## 1.11 · build 2026.11.26 · 2026-11-25
 
 **Update now works again for the Workday release**
