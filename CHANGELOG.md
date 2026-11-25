@@ -5,6 +5,15 @@ the update check compares; it only ever goes up, and it only changes when the sc
 website (like 1.3) leaves the build alone, so nobody has to press anything. Settings shows, for example,
 "LearnerBot 1.3. Your sheet's script is up to date (build 2026.10.11)."
 
+## 1.10 · website only · script build stays 2026.11.25.1 · 2026-11-25
+
+**The Today tab is now called The Workday**
+- The tab, and the heading at the top of it, now say **The Workday**. Everything on it works as before. The Dashboard's **Today's Focus**
+  (your coach's pick for the day) keeps its name
+- Your sheet's tab is still called Today, so nothing in your sheet changes
+
+**Needs the script update:** no. Reload the page.
+
 ## 1.9 · build 2026.11.25.1 · 2026-11-25
 
 **Your day, from both calendars (Today tab)**

@@ -207,5 +207,5 @@ test('the site, the demo and the script agree on the version they expect', () =>
   const mock = fs.readFileSync(path.join(root, 'js', 'mock.js'), 'utf8');
   assert.equal(/const VERSION = '([^']+)'/.exec(mock)[1], build);
   assert.equal(/const RELEASE = '([^']+)'/.exec(mock)[1], release);
-  assert.match(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'), new RegExp('## ' + release.replace('.', '\.') + ' · build ' + build.replace(/\./g, '\.')));
+  assert.match(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'), new RegExp('## ' + release.replace('.', '\.') + ' · (build ' + build.replace(/\./g, '\.') + '|website only · script build stays ' + build.replace(/\./g, '\.') + ')'));
 });
