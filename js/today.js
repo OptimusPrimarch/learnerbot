@@ -1,5 +1,5 @@
 'use strict';
-// today.js: the Today tab. The day's work (sent each morning by the planner on the owner's computer, plus anything added by
+// today.js: the Workday tab ("The Workday" on screen; Today is only its internal name). The day's work (sent each morning by the planner on the owner's computer, plus anything added by
 // hand), each item optionally linked to a goal. Checking an item off asks how long it took and saves a log entry.
 //
 // Loaded after app.js and history.js and uses their helpers (STATE, fire, offerUndo, render, toast, esc, fmtMinutes, ...).
@@ -109,8 +109,8 @@ function todayHead(t) {
   const bits = [];
   if (f && f.budget !== '' && f.budget != null) bits.push(`A realistic load is about ${esc(f.budget)} story points of work.`);
   const when = f && f.at ? new Date(f.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-  return `<section class="card wide focus t-head" aria-label="Today at a glance">
-    <div class="card-head"><label class="head">Today's Tasks</label>
+  return `<section class="card wide focus t-head" aria-label="The Workday at a glance">
+    <div class="card-head"><label class="head">The Workday</label>
       <span class="chip${t.fresh ? ' ok' : ''}">${t.fresh ? 'Plan received' + (when ? ' ' + esc(when) : '') : 'No plan today'}</span></div>
     <h3>${esc(todayHeading(t.date))}</h3>
     <p role="status" aria-live="polite"><b>${done.length}</b> of <b>${live.length}</b> done${mins ? ' · ' + esc(fmtMinutes(mins)) + ' logged' : ''}</p>
@@ -158,7 +158,7 @@ function renderToday() {
   if (!host) return;
   const t = todayData();
   if (!todayAvailable()) {
-    host.innerHTML = `<section class="card wide"><label class="head">Today's Tasks</label>
+    host.innerHTML = `<section class="card wide"><label class="head">The Workday</label>
       <p class="empty">${t ? 'Update your sheet to use this page.' : 'This page needs the newest version of your sheet\'s script. Press Update now in the yellow banner, or open Settings.'}</p></section>`;
     return;
   }
